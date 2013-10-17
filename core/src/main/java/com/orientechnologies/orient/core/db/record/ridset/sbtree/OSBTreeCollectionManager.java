@@ -58,7 +58,7 @@ public class OSBTreeCollectionManager {
     if (tree != null)
       return tree;
 
-    tree = new OSBTreeBonsai<OIdentifiable, Boolean>(".sbt", 1, true);
+    tree = new OSBTreeBonsai<OIdentifiable, Boolean>(DEFAULT_EXTENSION, 1, true);
     tree.load(FILE_NAME, rootIndex, (OStorageLocalAbstract) ODatabaseRecordThreadLocal.INSTANCE.get().getStorage());
 
     cache.putIfAbsent(tree.getRootBucketPointer(), tree);
