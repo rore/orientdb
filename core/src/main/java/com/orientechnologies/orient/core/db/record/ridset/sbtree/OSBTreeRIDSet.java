@@ -87,7 +87,7 @@ public class OSBTreeRIDSet implements Set<OIdentifiable>, OStringBuilderSerializ
   }
 
   private OSBTreeBonsai<OIdentifiable, Boolean> getTree() {
-    return collectionManager.loadSBTree(fileName, rootPointer);
+    return collectionManager.loadSBTree(rootPointer);
   }
 
   protected String getFileName() {

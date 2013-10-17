@@ -16,9 +16,9 @@
 
 package com.orientechnologies.orient.core.db.record.ridset.sbtree;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
 
+import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.orientechnologies.common.serialization.types.OBooleanSerializer;
 import com.orientechnologies.orient.core.db.ODatabaseRecordThreadLocal;
 import com.orientechnologies.orient.core.db.record.OIdentifiable;
@@ -31,40 +31,48 @@ import com.orientechnologies.orient.core.storage.impl.local.OStorageLocalAbstrac
  * @author <a href="mailto:enisher@gmail.com">Artem Orobets</a>
  */
 public class OSBTreeCollectionManager {
+  public static final String                                                               DEFAULT_EXTENSION = ".rbt";
 
-  private final Map<OBonsaiBucketPointer, OSBTreeBonsai<OIdentifiable, Boolean>> treeCache = new HashMap<OBonsaiBucketPointer, OSBTreeBonsai<OIdentifiable, Boolean>>();
+  private static final String                                                              FILE_NAME         = "ridset";
+  private final ConcurrentMap<OBonsaiBucketPointer, OSBTreeBonsai<OIdentifiable, Boolean>> cache;
 
-  public static final String                                                     FILE_ID   = "ridset";
+  public OSBTreeCollectionManager() {
+    this.cache = new ConcurrentLinkedHashMap.Builder<OBonsaiBucketPointer, OSBTreeBonsai<OIdentifiable, Boolean>>()
+        .maximumWeightedCapacity(10000).build();
+  }
 
   public OSBTreeBonsai<OIdentifiable, Boolean> createSBTree() {
-    OSBTreeBonsai<OIdentifiable, Boolean> tree = new OSBTreeBonsai<OIdentifiable, Boolean>(".sbt", 1, true);
+    OSBTreeBonsai<OIdentifiable, Boolean> tree = new OSBTreeBonsai<OIdentifiable, Boolean>(DEFAULT_EXTENSION, 1, true);
 
-    tree.create(FILE_ID, OLinkSerializer.INSTANCE, OBooleanSerializer.INSTANCE,
+    tree.create(FILE_NAME, OLinkSerializer.INSTANCE, OBooleanSerializer.INSTANCE,
         (OStorageLocalAbstract) ODatabaseRecordThreadLocal.INSTANCE.get().getStorage());
 
-    treeCache.put(tree.getRootBucketPointer(), tree);
+    OSBTreeBonsai<OIdentifiable, Boolean> oldTree = cache.put(tree.getRootBucketPointer(), tree);
+    assert oldTree == null;
 
     return tree;
   }
 
-  public OSBTreeBonsai<OIdentifiable, Boolean> loadSBTree(String fileName, OBonsaiBucketPointer rootIndex) {
-    OSBTreeBonsai<OIdentifiable, Boolean> tree = treeCache.get(rootIndex);
+  public OSBTreeBonsai<OIdentifiable, Boolean> loadSBTree(OBonsaiBucketPointer rootIndex) {
+    OSBTreeBonsai<OIdentifiable, Boolean> tree = cache.get(rootIndex);
     if (tree != null)
       return tree;
 
     tree = new OSBTreeBonsai<OIdentifiable, Boolean>(".sbt", 1, true);
-    tree.load(fileName, rootIndex, (OStorageLocalAbstract) ODatabaseRecordThreadLocal.INSTANCE.get().getStorage());
+    tree.load(FILE_NAME, rootIndex, (OStorageLocalAbstract) ODatabaseRecordThreadLocal.INSTANCE.get().getStorage());
 
-    treeCache.put(tree.getRootBucketPointer(), tree);
+    cache.putIfAbsent(tree.getRootBucketPointer(), tree);
+    tree = cache.get(rootIndex);
 
     return tree;
   }
 
-  public void startup() {
-
+  public void remove(OBonsaiBucketPointer rootIndex) {
+    OSBTreeBonsai<OIdentifiable, Boolean> tree = cache.remove(rootIndex);
+    tree.delete();
   }
 
   public void shutdown() {
-    treeCache.clear();
+    cache.clear();
   }
 }

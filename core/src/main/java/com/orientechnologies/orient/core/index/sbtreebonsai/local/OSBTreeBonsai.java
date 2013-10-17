@@ -17,13 +17,7 @@
 package com.orientechnologies.orient.core.index.sbtreebonsai.local;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Queue;
+import java.util.*;
 
 import com.orientechnologies.common.collection.OAlwaysGreaterKey;
 import com.orientechnologies.common.collection.OAlwaysLessKey;
@@ -438,6 +432,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
 
       OCacheEntry rootCacheEntry = diskCache.load(fileId, this.rootBucketPointer.getPageIndex(), false);
       OCachePointer rootPointer = rootCacheEntry.getCachePointer();
+      rootPointer.acquireSharedLock();
       try {
         OSBTreeBonsaiBucket<K, V> rootBucket = new OSBTreeBonsaiBucket<K, V>(rootPointer.getDataPointer(),
             this.rootBucketPointer.getPageOffset(), keySerializer, valueSerializer, ODurablePage.TrackMode.NONE);
@@ -446,6 +441,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
         valueSerializer = (OBinarySerializer<V>) OBinarySerializerFactory.INSTANCE.getObjectSerializer(rootBucket
             .getValueSerializerId());
       } finally {
+        rootPointer.releaseSharedLock();
         diskCache.release(rootCacheEntry);
       }
     } catch (IOException e) {

@@ -103,7 +103,6 @@ public abstract class ODatabaseRecordAbstract extends ODatabaseWrapperAbstract<O
 
     try {
       super.open(iUserName, iUserPassword);
-      sbTreeCollectionManager.startup();
       level1Cache.startup();
 
       metadata = new OMetadataDefault();
@@ -164,7 +163,6 @@ public abstract class ODatabaseRecordAbstract extends ODatabaseWrapperAbstract<O
     try {
       super.create();
 
-      sbTreeCollectionManager.startup();
       level1Cache.startup();
 
       getStorage().getConfiguration().update();

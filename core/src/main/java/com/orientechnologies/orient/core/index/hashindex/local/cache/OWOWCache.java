@@ -19,23 +19,8 @@ import java.io.EOFException;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.Set;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.CRC32;
 
@@ -844,10 +829,10 @@ public class OWOWCache {
               final OCachePointer pagePointer = group.pages[i];
               if (pagePointer != null) {
                 if (weakLockMode) {
-                  if (!pagePointer.tryAcquireExclusiveLock())
+                  if (!pagePointer.tryAcquireSharedLock())
                     continue groupsLoop;
                 } else
-                  pagePointer.acquireExclusiveLock();
+                  pagePointer.acquireSharedLock();
 
                 try {
                   flushPage(groupKey.fileId, (groupKey.groupIndex << 4) + i, pagePointer.getDataPointer());
@@ -857,9 +842,8 @@ public class OWOWCache {
                       pagePointer.getDataPointer());
                   pagePointer.setLastFlushedLsn(flushedLSN);
                 } finally {
-                  pagePointer.releaseExclusiveLock();
+                  pagePointer.releaseSharedLock();
                 }
-
               }
             }
 
@@ -909,14 +893,14 @@ public class OWOWCache {
             OCachePointer pagePointer = writeGroup.pages[i];
 
             if (pagePointer != null) {
-              pagePointer.acquireExclusiveLock();
+              pagePointer.acquireSharedLock();
               try {
                 flushPage(groupKey.fileId, (groupKey.groupIndex << 4) + i, pagePointer.getDataPointer());
                 pagePointer.decrementReferrer();
 
                 cacheSize.decrementAndGet();
               } finally {
-                pagePointer.releaseExclusiveLock();
+                pagePointer.releaseSharedLock();
               }
             }
           }

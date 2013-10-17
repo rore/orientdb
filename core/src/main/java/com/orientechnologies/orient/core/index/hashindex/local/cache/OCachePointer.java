@@ -87,6 +87,21 @@ public class OCachePointer extends OSharedResourceAdaptive {
   }
 
   @Override
+  public void acquireSharedLock() {
+    super.acquireSharedLock();
+  }
+
+  @Override
+  public boolean tryAcquireSharedLock() {
+    return super.tryAcquireSharedLock();
+  }
+
+  @Override
+  public void releaseSharedLock() {
+    super.releaseSharedLock();
+  }
+
+  @Override
   protected void finalize() throws Throwable {
     super.finalize();
 
