@@ -142,7 +142,7 @@ public class OPaginatedWithoutRidReuseCluster extends ODurableComponent implemen
     this.compression = OCompressionFactory.INSTANCE.getCompression(this.config.compression);
 
     storageLocal = storage;
-    init(storage.getWALInstance());
+    init(storage.getAtomicOperationManager(), storage.getWALInstance());
 
     diskCache = storageLocal.getDiskCache();
     name = config.getName();
@@ -1537,11 +1537,11 @@ public class OPaginatedWithoutRidReuseCluster extends ODurableComponent implemen
   }
 
   @Override
-  protected void startDurableOperation(OStorageTransaction transaction) throws IOException {
+  protected OAtomicOperation startDurableOperation(OStorageTransaction transaction) throws IOException {
     if (!config.useWal)
-      return;
+      return null;
 
-    super.startDurableOperation(transaction);
+    return super.startDurableOperation(transaction);
   }
 
   @Override

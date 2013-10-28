@@ -53,6 +53,7 @@ import com.orientechnologies.orient.core.memory.OMemoryWatchDog;
 import com.orientechnologies.orient.core.metadata.OMetadataDefault;
 import com.orientechnologies.orient.core.storage.*;
 import com.orientechnologies.orient.core.storage.fs.OMMapManagerLocator;
+import com.orientechnologies.orient.core.storage.impl.local.paginated.OAtomicOperationManager;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OWriteAheadLog;
 import com.orientechnologies.orient.core.tx.OTransaction;
 import com.orientechnologies.orient.core.version.ORecordVersion;
@@ -201,6 +202,8 @@ public class OStorageLocal extends OStorageLocalAbstract {
       if (OGlobalConfiguration.USE_WAL.getValueAsBoolean())
         writeAheadLog = new OWriteAheadLog(this);
 
+      atomicOperationManager = new OAtomicOperationManager(writeAheadLog);
+
       txManager.open();
 
     } catch (Exception e) {
@@ -270,7 +273,10 @@ public class OStorageLocal extends OStorageLocalAbstract {
 
       configuration.create();
 
-      writeAheadLog = new OWriteAheadLog(this);
+      if (OGlobalConfiguration.USE_WAL.getValueAsBoolean())
+        writeAheadLog = new OWriteAheadLog(this);
+
+      atomicOperationManager = new OAtomicOperationManager(writeAheadLog);
 
       txManager.create();
     } catch (OStorageException e) {

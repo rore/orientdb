@@ -31,9 +31,7 @@ import com.orientechnologies.orient.core.index.sbtree.local.OSBTree;
 import com.orientechnologies.orient.core.index.sbtree.local.OSBTreeException;
 import com.orientechnologies.orient.core.serialization.serializer.binary.OBinarySerializerFactory;
 import com.orientechnologies.orient.core.storage.impl.local.OStorageLocalAbstract;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.ODurableComponent;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.ODurablePage;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.OStorageTransaction;
+import com.orientechnologies.orient.core.storage.impl.local.paginated.*;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OWriteAheadLog;
 
 /**
@@ -132,8 +130,10 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
   }
 
   private void initDurableComponent(OStorageLocalAbstract storageLocal) {
-    OWriteAheadLog writeAheadLog = storageLocal.getWALInstance();
-    init(writeAheadLog);
+    final OWriteAheadLog writeAheadLog = storageLocal.getWALInstance();
+    final OAtomicOperationManager atomicOperationManager = storageLocal.getAtomicOperationManager();
+
+    init(atomicOperationManager, writeAheadLog);
   }
 
   public String getName() {
@@ -423,6 +423,8 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
         rootPointer.releaseSharedLock();
         diskCache.release(rootCacheEntry);
       }
+
+      initDurableComponent(storageLocal);
     } catch (IOException e) {
       throw new OSBTreeException("Exception during loading of sbtree " + name, e);
     } finally {
@@ -472,8 +474,6 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
     acquireExclusiveLock();
     OStorageTransaction transaction = storage.getStorageTransaction();
     try {
-      startDurableOperation(transaction);
-
       BucketSearchResult bucketSearchResult = findBucket(key);
       if (bucketSearchResult.itemIndex < 0)
         return null;
@@ -486,6 +486,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
       final V removed;
 
       keyBucketPointer.acquireExclusiveLock();
+      startDurableOperation(transaction);
       try {
         OSBTreeBonsaiBucket<K, V> keyBucket = new OSBTreeBonsaiBucket<K, V>(keyBucketPointer.getDataPointer(),
             bucketPointer.getPageOffset(), keySerializer, valueSerializer, getTrackMode());
@@ -501,6 +502,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
         keyBucketPointer.releaseExclusiveLock();
         diskCache.release(keyBucketCacheEntry);
       }
+
       setSize(size() - 1);
       endDurableOperation(transaction, false);
       return removed;
@@ -523,11 +525,11 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
   }
 
   @Override
-  protected void startDurableOperation(OStorageTransaction transaction) throws IOException {
+  protected OAtomicOperation startDurableOperation(OStorageTransaction transaction) throws IOException {
     if (transaction == null && !durableInNonTxMode)
-      return;
+      return null;
 
-    super.startDurableOperation(transaction);
+    return super.startDurableOperation(transaction);
   }
 
   @Override

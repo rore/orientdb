@@ -35,11 +35,6 @@ import com.orientechnologies.orient.core.config.OGlobalConfiguration;
  * @since 8/7/13
  */
 public class OSBTreeBonsaiBucket<K, V> extends OBonsaiBucketAbstract {
-  /**
-   * Maximum size of key-value pair which can be put in SBTreeBonsai in bytes (24576000 by default)
-   */
-  private static final int            MAX_ENTREE_SIZE          = 24576000;
-
   private static final int            FREE_POINTER_OFFSET      = WAL_POSITION_OFFSET + OLongSerializer.LONG_SIZE;
   private static final int            SIZE_OFFSET              = FREE_POINTER_OFFSET + OIntegerSerializer.INT_SIZE;
   private static final int            IS_LEAF_OFFSET           = SIZE_OFFSET + OIntegerSerializer.INT_SIZE;

@@ -156,6 +156,8 @@ public class OLocalPaginatedStorage extends OStorageLocalAbstract {
     } else
       writeAheadLog = null;
 
+    atomicOperationManager = new OAtomicOperationManager(writeAheadLog);
+
     long diskCacheSize = OGlobalConfiguration.DISK_CACHE_SIZE.getValueAsLong() * 1024 * 1024;
     long writeCacheSize = (long) Math.floor((((double) OGlobalConfiguration.DISK_WRITE_CACHE_PART.getValueAsInteger()) / 100.0)
         * diskCacheSize);

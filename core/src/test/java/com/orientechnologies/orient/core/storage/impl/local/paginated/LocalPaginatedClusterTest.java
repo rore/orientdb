@@ -42,11 +42,13 @@ import com.orientechnologies.orient.core.version.OVersionFactory;
  */
 @Test
 public class LocalPaginatedClusterTest {
-  private static final int RECORD_SYSTEM_INFORMATION = 2 * OByteSerializer.BYTE_SIZE + OIntegerSerializer.INT_SIZE
-                                                         + OLongSerializer.LONG_SIZE;
-  public OPaginatedCluster paginatedCluster          = new OPaginatedCluster();
-  protected String         buildDirectory;
-  protected ODiskCache     diskCache;
+  private static final int          RECORD_SYSTEM_INFORMATION = 2 * OByteSerializer.BYTE_SIZE + OIntegerSerializer.INT_SIZE
+                                                                  + OLongSerializer.LONG_SIZE;
+  public OPaginatedCluster          paginatedCluster          = new OPaginatedCluster();
+  protected String                  buildDirectory;
+  protected ODiskCache              diskCache;
+
+  protected OAtomicOperationManager atomicOperationManager    = new OAtomicOperationManager(null);
 
   @BeforeClass
   public void beforeClass() throws IOException {
@@ -73,7 +75,7 @@ public class LocalPaginatedClusterTest {
     when(storage.getConfiguration()).thenReturn(storageConfiguration);
     when(storage.getMode()).thenReturn("rw");
     when(storage.getStoragePath()).thenReturn(buildDirectory);
-
+    when(storage.getAtomicOperationManager()).thenReturn(atomicOperationManager);
     when(storageConfiguration.getDirectory()).thenReturn(buildDirectory);
 
     paginatedCluster.configure(storage, 5, "paginatedClusterTest", buildDirectory, -1);

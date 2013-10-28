@@ -33,9 +33,7 @@ import com.orientechnologies.orient.core.index.sbtree.OTreeInternal;
 import com.orientechnologies.orient.core.metadata.schema.OType;
 import com.orientechnologies.orient.core.serialization.serializer.binary.OBinarySerializerFactory;
 import com.orientechnologies.orient.core.storage.impl.local.OStorageLocalAbstract;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.ODurableComponent;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.ODurablePage;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.OStorageTransaction;
+import com.orientechnologies.orient.core.storage.impl.local.paginated.*;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OWriteAheadLog;
 
 /**
@@ -133,8 +131,10 @@ public class OSBTree<K, V> extends ODurableComponent implements OTreeInternal<K,
   }
 
   private void initDurableComponent(OStorageLocalAbstract storageLocal) {
-    OWriteAheadLog writeAheadLog = storageLocal.getWALInstance();
-    init(writeAheadLog);
+    final OWriteAheadLog writeAheadLog = storageLocal.getWALInstance();
+    final OAtomicOperationManager atomicOperationManager = storageLocal.getAtomicOperationManager();
+
+    init(atomicOperationManager, writeAheadLog);
   }
 
   public String getName() {
@@ -459,7 +459,7 @@ public class OSBTree<K, V> extends ODurableComponent implements OTreeInternal<K,
     try {
       endDurableOperation(transaction, true);
     } catch (IOException e1) {
-      OLogManager.instance().error(this, "Error during sbtree operation  rollback", e1);
+      OLogManager.instance().error(this, "Error during sbtree operation rollback", e1);
     }
   }
 
@@ -549,6 +549,8 @@ public class OSBTree<K, V> extends ODurableComponent implements OTreeInternal<K,
       } finally {
         diskCache.release(rootCacheEntry);
       }
+
+      initDurableComponent(storageLocal);
     } catch (IOException e) {
       throw new OSBTreeException("Exception during loading of sbtree " + name, e);
     } finally {
@@ -601,9 +603,6 @@ public class OSBTree<K, V> extends ODurableComponent implements OTreeInternal<K,
     OStorageTransaction transaction = storage.getStorageTransaction();
     try {
       key = keySerializer.prepocess(key, keyTypes);
-
-      startDurableOperation(transaction);
-
       BucketSearchResult bucketSearchResult = findBucket(key, PartialSearchMode.NONE);
       if (bucketSearchResult.itemIndex < 0)
         return null;
@@ -612,6 +611,7 @@ public class OSBTree<K, V> extends ODurableComponent implements OTreeInternal<K,
       OCachePointer keyBucketPointer = keyBucketCacheEntry.getCachePointer();
 
       keyBucketPointer.acquireExclusiveLock();
+      startDurableOperation(transaction);
       try {
         OSBTreeBucket<K, V> keyBucket = new OSBTreeBucket<K, V>(keyBucketPointer.getDataPointer(), keySerializer, keyTypes,
             valueSerializer, getTrackMode());
@@ -630,14 +630,17 @@ public class OSBTree<K, V> extends ODurableComponent implements OTreeInternal<K,
         endDurableOperation(transaction, false);
 
         return value;
+      } catch (IOException ioe) {
+        rollback(transaction);
+        throw new OSBTreeException("Error during removing key " + key + " from sbtree " + name, ioe);
+      } catch (RuntimeException e) {
+        rollback(transaction);
+        throw e;
       } finally {
         keyBucketPointer.releaseExclusiveLock();
         diskCache.release(keyBucketCacheEntry);
       }
-
     } catch (IOException e) {
-      rollback(transaction);
-
       throw new OSBTreeException("Error during removing key " + key + " from sbtree " + name, e);
     } finally {
       releaseExclusiveLock();
@@ -653,11 +656,11 @@ public class OSBTree<K, V> extends ODurableComponent implements OTreeInternal<K,
   }
 
   @Override
-  protected void startDurableOperation(OStorageTransaction transaction) throws IOException {
+  protected OAtomicOperation startDurableOperation(OStorageTransaction transaction) throws IOException {
     if (transaction == null && !durableInNonTxMode)
-      return;
+      return null;
 
-    super.startDurableOperation(transaction);
+    return super.startDurableOperation(transaction);
   }
 
   @Override

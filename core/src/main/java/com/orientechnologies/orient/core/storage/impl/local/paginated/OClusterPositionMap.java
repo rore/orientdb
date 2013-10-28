@@ -19,37 +19,50 @@ package com.orientechnologies.orient.core.storage.impl.local.paginated;
 import java.io.IOException;
 import java.util.Arrays;
 
-import com.orientechnologies.common.concur.resource.OSharedResourceAdaptive;
 import com.orientechnologies.orient.core.id.OClusterPosition;
 import com.orientechnologies.orient.core.id.OClusterPositionFactory;
 import com.orientechnologies.orient.core.index.hashindex.local.cache.OCacheEntry;
 import com.orientechnologies.orient.core.index.hashindex.local.cache.OCachePointer;
 import com.orientechnologies.orient.core.index.hashindex.local.cache.ODiskCache;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.*;
+import com.orientechnologies.orient.core.storage.impl.local.OStorageLocalAbstract;
 
 /**
  * @author Andrey Lomakin <a href="mailto:lomakin.andrey@gmail.com">Andrey Lomakin</a>
  * @since 10/7/13
  */
-public class OClusterPositionMap extends OSharedResourceAdaptive {
-  public static final String   DEF_EXTENSION = ".cpm";
+public class OClusterPositionMap extends ODurableComponent {
+  public static final String          DEF_EXTENSION = ".cpm";
 
-  private final ODiskCache     diskCache;
-  private String               name;
+  private final OStorageLocalAbstract storage;
+  private final ODiskCache            diskCache;
+  private String                      name;
 
-  private long                 fileId;
+  private long                        fileId;
+  private boolean                     useWal;
 
-  private final OWriteAheadLog writeAheadLog;
-
-  public OClusterPositionMap(ODiskCache diskCache, String name, OWriteAheadLog writeAheadLog) {
+  public OClusterPositionMap(OStorageLocalAbstract storage, String name, boolean useWal) {
+    this.useWal = useWal;
     acquireExclusiveLock();
     try {
-      this.diskCache = diskCache;
+      this.storage = storage;
+      this.diskCache = storage.getDiskCache();
+
       this.name = name;
-      this.writeAheadLog = writeAheadLog;
+
+      init(storage.getAtomicOperationManager(), storage.getWALInstance());
     } finally {
       releaseExclusiveLock();
     }
+  }
+
+  public void setUseWal(boolean useWal) {
+    acquireExclusiveLock();
+    try {
+      this.useWal = useWal;
+    } finally {
+      releaseExclusiveLock();
+    }
+
   }
 
   public void open() throws IOException {
@@ -116,8 +129,8 @@ public class OClusterPositionMap extends OSharedResourceAdaptive {
     }
   }
 
-  public OClusterPosition add(long pageIndex, int recordPosition, OOperationUnitId unitId, OLogSequenceNumber startLSN,
-      ODurablePage.TrackMode trackMode) throws IOException {
+  public OClusterPosition add(long pageIndex, int recordPosition) throws IOException {
+    final OStorageTransaction transaction = storage.getStorageTransaction();
     acquireExclusiveLock();
     try {
       long lastPage = diskCache.getFilledUpTo(fileId) - 1;
@@ -128,11 +141,13 @@ public class OClusterPositionMap extends OSharedResourceAdaptive {
         isNewPage = true;
       }
 
+      startDurableOperation(transaction);
+
       OCacheEntry cacheEntry = diskCache.load(fileId, lastPage, false);
       OCachePointer cachePointer = cacheEntry.getCachePointer();
       cachePointer.acquireExclusiveLock();
       try {
-        OClusterPositionMapBucket bucket = new OClusterPositionMapBucket(cachePointer.getDataPointer(), trackMode);
+        OClusterPositionMapBucket bucket = new OClusterPositionMapBucket(cachePointer.getDataPointer(), getTrackMode());
         if (bucket.isFull()) {
           cachePointer.releaseExclusiveLock();
           diskCache.release(cacheEntry);
@@ -142,21 +157,29 @@ public class OClusterPositionMap extends OSharedResourceAdaptive {
           cachePointer = cacheEntry.getCachePointer();
 
           cachePointer.acquireExclusiveLock();
-          bucket = new OClusterPositionMapBucket(cachePointer.getDataPointer(), trackMode);
+          bucket = new OClusterPositionMapBucket(cachePointer.getDataPointer(), getTrackMode());
         }
 
         final long index = bucket.add(pageIndex, recordPosition);
         final OClusterPosition result = OClusterPositionFactory.INSTANCE.valueOf(index + cacheEntry.getPageIndex()
             * OClusterPositionMapBucket.MAX_ENTRIES);
 
-        logPageChanges(bucket, fileId, cacheEntry.getPageIndex(), isNewPage, unitId, startLSN);
+        logPageChanges(bucket, fileId, cacheEntry.getPageIndex(), isNewPage);
         cacheEntry.markDirty();
+
+        endDurableOperation(transaction, false);
 
         return result;
       } finally {
         cachePointer.releaseExclusiveLock();
         diskCache.release(cacheEntry);
       }
+    } catch (IOException e) {
+      endDurableOperation(transaction, true);
+      throw e;
+    } catch (RuntimeException e) {
+      endDurableOperation(transaction, true);
+      throw e;
     } finally {
       releaseExclusiveLock();
     }
@@ -185,8 +208,9 @@ public class OClusterPositionMap extends OSharedResourceAdaptive {
     }
   }
 
-  public OClusterPositionMapBucket.PositionEntry remove(OClusterPosition clusterPosition, OOperationUnitId unitId,
-      OLogSequenceNumber startLSN, ODurablePage.TrackMode trackMode) throws IOException {
+  public OClusterPositionMapBucket.PositionEntry remove(OClusterPosition clusterPosition) throws IOException {
+    final OStorageTransaction transaction = storage.getStorageTransaction();
+
     acquireExclusiveLock();
     try {
       final long position = clusterPosition.longValue();
@@ -194,11 +218,12 @@ public class OClusterPositionMap extends OSharedResourceAdaptive {
       long pageIndex = position / OClusterPositionMapBucket.MAX_ENTRIES;
       int index = (int) (position % OClusterPositionMapBucket.MAX_ENTRIES);
 
+      startDurableOperation(transaction);
       final OCacheEntry cacheEntry = diskCache.load(fileId, pageIndex, false);
       final OCachePointer cachePointer = cacheEntry.getCachePointer();
       cachePointer.acquireExclusiveLock();
       try {
-        final OClusterPositionMapBucket bucket = new OClusterPositionMapBucket(cachePointer.getDataPointer(), trackMode);
+        final OClusterPositionMapBucket bucket = new OClusterPositionMapBucket(cachePointer.getDataPointer(), getTrackMode());
 
         OClusterPositionMapBucket.PositionEntry positionEntry = bucket.remove(index);
         if (positionEntry == null)
@@ -206,9 +231,17 @@ public class OClusterPositionMap extends OSharedResourceAdaptive {
 
         cacheEntry.markDirty();
 
-        logPageChanges(bucket, fileId, pageIndex, false, unitId, startLSN);
+        logPageChanges(bucket, fileId, pageIndex, false);
+
+        endDurableOperation(transaction, false);
 
         return positionEntry;
+      } catch (IOException ioe) {
+        endDurableOperation(transaction, true);
+        throw ioe;
+      } catch (RuntimeException e) {
+        endDurableOperation(transaction, true);
+        throw e;
       } finally {
         cachePointer.releaseExclusiveLock();
         diskCache.release(cacheEntry);
@@ -423,23 +456,35 @@ public class OClusterPositionMap extends OSharedResourceAdaptive {
     }
   }
 
-  private void logPageChanges(ODurablePage localPage, long fileId, long pageIndex, boolean isNewPage, OOperationUnitId unitId,
-      OLogSequenceNumber startLSN) throws IOException {
-    if (writeAheadLog != null) {
-      OPageChanges pageChanges = localPage.getPageChanges();
-      if (pageChanges.isEmpty())
-        return;
+  @Override
+  protected ODurablePage.TrackMode getTrackMode() {
+    if (!useWal)
+      return ODurablePage.TrackMode.NONE;
 
-      OLogSequenceNumber prevLsn;
-      if (isNewPage)
-        prevLsn = startLSN;
-      else
-        prevLsn = localPage.getLsn();
-
-      OLogSequenceNumber lsn = writeAheadLog.log(new OUpdatePageRecord(pageIndex, fileId, unitId, pageChanges, prevLsn));
-
-      localPage.setLsn(lsn);
-    }
+    return super.getTrackMode();
   }
 
+  @Override
+  protected void endDurableOperation(OStorageTransaction transaction, boolean rollback) throws IOException {
+    if (!useWal)
+      return;
+
+    super.endDurableOperation(transaction, rollback);
+  }
+
+  @Override
+  protected OAtomicOperation startDurableOperation(OStorageTransaction transaction) throws IOException {
+    if (!useWal)
+      return null;
+
+    return super.startDurableOperation(transaction);
+  }
+
+  @Override
+  protected void logPageChanges(ODurablePage localPage, long fileId, long pageIndex, boolean isNewPage) throws IOException {
+    if (!useWal)
+      return;
+
+    super.logPageChanges(localPage, fileId, pageIndex, isNewPage);
+  }
 }

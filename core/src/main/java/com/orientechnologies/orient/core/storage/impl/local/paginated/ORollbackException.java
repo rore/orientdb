@@ -13,23 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.orientechnologies.orient.core.storage.impl.local.paginated;
 
-import com.orientechnologies.orient.core.tx.OTransaction;
+import com.orientechnologies.common.exception.OException;
 
 /**
- * @author Andrey Lomakin
- * @since 12.06.13
+ * @author Andrey Lomakin <a href="mailto:lomakin.andrey@gmail.com">Andrey Lomakin</a>
+ * @since 10/28/13
  */
-public class OStorageTransaction {
-  private final OTransaction clientTx;
-
-  public OStorageTransaction(OTransaction clientTx) {
-    this.clientTx = clientTx;
-  }
-
-  public OTransaction getClientTx() {
-    return clientTx;
+public class ORollbackException extends OException {
+  public ORollbackException(String message) {
+    super(message);
   }
 }

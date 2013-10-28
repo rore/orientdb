@@ -110,13 +110,13 @@ public class OPaginatedCluster extends ODurableComponent implements OCluster {
     this.compression = OCompressionFactory.INSTANCE.getCompression(this.config.compression);
 
     storageLocal = storage;
-    init(storage.getWALInstance());
+    init(storage.getAtomicOperationManager(), storage.getWALInstance());
 
     diskCache = storageLocal.getDiskCache();
     name = config.getName();
     this.id = config.getId();
 
-    clusterPositionMap = new OClusterPositionMap(diskCache, name, storage.getWALInstance());
+    clusterPositionMap = new OClusterPositionMap(storage, name, this.config.useWal);
   }
 
   public boolean exists() {
@@ -297,6 +297,7 @@ public class OPaginatedCluster extends ODurableComponent implements OCluster {
           + stringValue + "].");
 
     config.useWal = Boolean.valueOf(stringValue);
+    clusterPositionMap.setUseWal(config.useWal);
     storageLocal.getConfiguration().update();
   }
 
@@ -394,8 +395,7 @@ public class OPaginatedCluster extends ODurableComponent implements OCluster {
 
           updateClusterState(trackMode, 1, addEntryResult.recordsSizeDiff);
 
-          final OClusterPosition clusterPosition = clusterPositionMap.add(addEntryResult.pageIndex, addEntryResult.pagePosition,
-              getCurrentOperationUnitId(), getStartLSN(), trackMode);
+          final OClusterPosition clusterPosition = clusterPositionMap.add(addEntryResult.pageIndex, addEntryResult.pagePosition);
 
           endDurableOperation(transaction, false);
 
@@ -486,8 +486,7 @@ public class OPaginatedCluster extends ODurableComponent implements OCluster {
 
           updateClusterState(trackMode, 1, recordsSizeDiff);
 
-          OClusterPosition clusterPosition = clusterPositionMap.add(firstPageIndex, firstPagePosition, getCurrentOperationUnitId(),
-              getStartLSN(), trackMode);
+          OClusterPosition clusterPosition = clusterPositionMap.add(firstPageIndex, firstPagePosition);
 
           endDurableOperation(transaction, false);
 
@@ -707,7 +706,7 @@ public class OPaginatedCluster extends ODurableComponent implements OCluster {
 
         updateClusterState(trackMode, -1, -removedContentSize);
 
-        clusterPositionMap.remove(clusterPosition, getCurrentOperationUnitId(), getStartLSN(), trackMode);
+        clusterPositionMap.remove(clusterPosition);
         endDurableOperation(transaction, false);
 
         return true;
@@ -1485,11 +1484,11 @@ public class OPaginatedCluster extends ODurableComponent implements OCluster {
   }
 
   @Override
-  protected void startDurableOperation(OStorageTransaction transaction) throws IOException {
+  protected OAtomicOperation startDurableOperation(OStorageTransaction transaction) throws IOException {
     if (!config.useWal)
-      return;
+      return null;
 
-    super.startDurableOperation(transaction);
+    return super.startDurableOperation(transaction);
   }
 
   @Override
