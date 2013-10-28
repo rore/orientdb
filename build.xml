@@ -159,6 +159,10 @@
             <fileset dir="server/src/site"/>
         </copy>
 
+        <copy todir="${db.release}/plugins/">
+            <fileset dir="server/plugins"/>
+        </copy>
+
         <copy todir="${db.release}/config/" flatten="true">
             <fileset dir="." includes="tools/config/*"/>
         </copy>
@@ -194,10 +198,6 @@
             <fileset dir="${db.release}">
                 <exclude name="**/*.log.*"/>
             </fileset>
-        </copy>
-
-        <copy todir="${graph.release}/www/">
-            <fileset dir="graphdb/src/site"/>
         </copy>
 
         <copy todir="${graph.release}/bin/" flatten="true" overwrite="true">

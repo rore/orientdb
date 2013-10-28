@@ -357,7 +357,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
 
         addChildrenToQueue(subTreesToDelete, bucket);
 
-        bucket.setLeftSibling(head);
+        bucket.setFreeListPointer(head);
         head = bucketPointer;
 
         logPageChanges(bucket, fileId, bucketPointer.getPageIndex(), false);
@@ -397,7 +397,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
       final OSBTreeBonsaiBucket<K, V> bucket = new OSBTreeBonsaiBucket<K, V>(pointer.getDataPointer(),
           bucketPointer.getPageOffset(), keySerializer, valueSerializer, getTrackMode());
 
-      bucket.setLeftSibling(freeListHead);
+      bucket.setFreeListPointer(freeListHead);
 
       super.logPageChanges(bucket, fileId, bucketPointer.getPageIndex(), false);
       cacheEntry.markDirty();
@@ -743,7 +743,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
               return bucket.getKey(0);
             }
           } else {
-            if (bucket.isEmpty() || itemIndex >= bucket.size()) {
+            if (bucket.isEmpty() || itemIndex > bucket.size()) {
               if (path.isEmpty()) {
                 return null;
               } else {
@@ -753,11 +753,16 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
                 itemIndex = pagePathItemUnit.itemIndex + 1;
               }
             } else {
-              OSBTreeBonsaiBucket.SBTreeEntry<K, V> entry = bucket.getEntry(itemIndex);
-
               path.add(new PagePathItemUnit(bucketPointer, itemIndex));
 
-              bucketPointer = entry.leftChild;
+              if (itemIndex < bucket.size()) {
+                OSBTreeBonsaiBucket.SBTreeEntry<K, V> entry = bucket.getEntry(itemIndex);
+                bucketPointer = entry.leftChild;
+              } else {
+                OSBTreeBonsaiBucket.SBTreeEntry<K, V> entry = bucket.getEntry(itemIndex - 1);
+                bucketPointer = entry.rightChild;
+              }
+
               itemIndex = 0;
             }
           }
@@ -808,7 +813,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
               return bucket.getKey(bucket.size() - 1);
             }
           } else {
-            if (itemIndex < 0) {
+            if (itemIndex < -1) {
               if (!path.isEmpty()) {
                 PagePathItemUnit pagePathItemUnit = path.removeLast();
 
@@ -817,11 +822,16 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
               } else
                 return null;
             } else {
-              OSBTreeBonsaiBucket.SBTreeEntry<K, V> entry = bucket.getEntry(itemIndex);
-
               path.add(new PagePathItemUnit(bucketPointer, itemIndex));
 
-              bucketPointer = entry.rightChild;
+              if (itemIndex > -1) {
+                OSBTreeBonsaiBucket.SBTreeEntry<K, V> entry = bucket.getEntry(itemIndex);
+                bucketPointer = entry.rightChild;
+              } else {
+                OSBTreeBonsaiBucket.SBTreeEntry<K, V> entry = bucket.getEntry(0);
+                bucketPointer = entry.leftChild;
+              }
+
               itemIndex = OSBTreeBonsaiBucket.MAX_BUCKET_SIZE_BYTES + 1;
             }
           }
@@ -1260,6 +1270,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
 
   private AllocationResult reuseBucketFromFreeList(OSysBucket sysBucket) throws IOException {
     final OBonsaiBucketPointer oldFreeListHead = sysBucket.getFreeListHead();
+    assert oldFreeListHead.isValid();
 
     OCacheEntry cacheEntry = diskCache.load(fileId, oldFreeListHead.getPageIndex(), false);
     OCachePointer pointer = cacheEntry.getCachePointer();
@@ -1268,7 +1279,8 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
       final OSBTreeBonsaiBucket<K, V> bucket = new OSBTreeBonsaiBucket<K, V>(pointer.getDataPointer(),
           oldFreeListHead.getPageOffset(), keySerializer, valueSerializer, getTrackMode());
 
-      sysBucket.setFreeListHead(bucket.getLeftSibling());
+      sysBucket.setFreeListHead(bucket.getFreeListPointer());
+      sysBucket.setFreeListLength(sysBucket.freeListLength() - 1);
 
       logPageChanges(bucket, fileId, oldFreeListHead.getPageIndex(), false);
       cacheEntry.markDirty();

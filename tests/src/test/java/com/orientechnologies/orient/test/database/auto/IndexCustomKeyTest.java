@@ -20,7 +20,7 @@ import java.util.Arrays;
 import org.testng.Assert;
 import org.testng.annotations.*;
 
-import com.orientechnologies.common.directmemory.ODirectMemory;
+import com.orientechnologies.common.directmemory.ODirectMemoryPointer;
 import com.orientechnologies.common.serialization.types.OBinarySerializer;
 import com.orientechnologies.common.serialization.types.OBinaryTypeSerializer;
 import com.orientechnologies.orient.core.db.document.ODatabaseDocumentTx;
@@ -82,11 +82,11 @@ public class IndexCustomKeyTest {
       return length;
     }
 
-    public int getObjectSize(final ComparableBinary object) {
+    public int getObjectSize(final ComparableBinary object, Object... hints) {
       return object.toByteArray().length;
     }
 
-    public void serialize(final ComparableBinary object, final byte[] stream, final int startPosition) {
+    public void serialize(final ComparableBinary object, final byte[] stream, final int startPosition, Object... hints) {
       final byte[] buffer = object.toByteArray();
       System.arraycopy(buffer, 0, stream, startPosition, buffer.length);
     }
@@ -108,7 +108,7 @@ public class IndexCustomKeyTest {
       return LENGTH;
     }
 
-    public void serializeNative(ComparableBinary object, byte[] stream, int startPosition) {
+    public void serializeNative(ComparableBinary object, byte[] stream, int startPosition, Object... hints) {
       serialize(object, stream, startPosition);
     }
 
@@ -117,18 +117,18 @@ public class IndexCustomKeyTest {
     }
 
     @Override
-    public void serializeInDirectMemory(ComparableBinary object, ODirectMemory memory, long pointer) {
+    public void serializeInDirectMemory(ComparableBinary object, ODirectMemoryPointer pointer, long offset, Object... hints) {
       final byte[] buffer = object.toByteArray();
-      memory.set(pointer, buffer, 0, buffer.length);
+      pointer.set(offset, buffer, 0, buffer.length);
     }
 
     @Override
-    public ComparableBinary deserializeFromDirectMemory(ODirectMemory memory, long pointer) {
-      return new ComparableBinary(memory.get(pointer, LENGTH));
+    public ComparableBinary deserializeFromDirectMemory(ODirectMemoryPointer pointer, long offset) {
+      return new ComparableBinary(pointer.get(offset, LENGTH));
     }
 
     @Override
-    public int getObjectSizeInDirectMemory(ODirectMemory memory, long pointer) {
+    public int getObjectSizeInDirectMemory(ODirectMemoryPointer pointer, long offset) {
       return LENGTH;
     }
 
@@ -138,6 +138,11 @@ public class IndexCustomKeyTest {
 
     public int getFixedLength() {
       return LENGTH;
+    }
+
+    @Override
+    public ComparableBinary prepocess(ComparableBinary value, Object... hints) {
+      return value;
     }
   }
 

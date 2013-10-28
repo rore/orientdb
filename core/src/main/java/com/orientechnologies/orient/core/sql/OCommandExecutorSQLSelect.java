@@ -15,18 +15,8 @@
  */
 package com.orientechnologies.orient.core.sql;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.Set;
 
 import com.orientechnologies.common.collection.OCompositeKey;
 import com.orientechnologies.common.collection.OMultiCollectionIterator;
@@ -46,6 +36,7 @@ import com.orientechnologies.orient.core.index.OIndexDefinition;
 import com.orientechnologies.orient.core.index.OIndexInternal;
 import com.orientechnologies.orient.core.metadata.schema.OClass;
 import com.orientechnologies.orient.core.metadata.schema.OProperty;
+import com.orientechnologies.orient.core.metadata.schema.OType;
 import com.orientechnologies.orient.core.metadata.security.ODatabaseSecurityResources;
 import com.orientechnologies.orient.core.metadata.security.ORole;
 import com.orientechnologies.orient.core.record.ORecord;
@@ -60,17 +51,8 @@ import com.orientechnologies.orient.core.sql.filter.OSQLFilterItemVariable;
 import com.orientechnologies.orient.core.sql.functions.OSQLFunctionRuntime;
 import com.orientechnologies.orient.core.sql.functions.coll.OSQLFunctionDistinct;
 import com.orientechnologies.orient.core.sql.functions.misc.OSQLFunctionCount;
-import com.orientechnologies.orient.core.sql.operator.OIndexReuseType;
-import com.orientechnologies.orient.core.sql.operator.OQueryOperator;
+import com.orientechnologies.orient.core.sql.operator.*;
 import com.orientechnologies.orient.core.sql.operator.OQueryOperator.INDEX_OPERATION_TYPE;
-import com.orientechnologies.orient.core.sql.operator.OQueryOperatorAnd;
-import com.orientechnologies.orient.core.sql.operator.OQueryOperatorBetween;
-import com.orientechnologies.orient.core.sql.operator.OQueryOperatorIn;
-import com.orientechnologies.orient.core.sql.operator.OQueryOperatorMajor;
-import com.orientechnologies.orient.core.sql.operator.OQueryOperatorMajorEquals;
-import com.orientechnologies.orient.core.sql.operator.OQueryOperatorMinor;
-import com.orientechnologies.orient.core.sql.operator.OQueryOperatorMinorEquals;
-import com.orientechnologies.orient.core.sql.operator.OQueryOperatorOr;
 import com.orientechnologies.orient.core.storage.OStorage;
 
 /**
@@ -480,37 +462,44 @@ public class OCommandExecutorSQLSelect extends OCommandExecutorSQLResultsetAbstr
   protected ORuntimeResult getProjectionGroup(final Object fieldValue) {
     ORuntimeResult group = null;
 
-    Object key = null;
-    if (groupedResult == null)
-      groupedResult = new LinkedHashMap<Object, ORuntimeResult>();
+    final long projectionElapsed = (Long) context.getVariable("projectionElapsed", 0l);
+    final long begin = System.currentTimeMillis();
+    try {
 
-    if (fieldValue != null) {
-      if (fieldValue.getClass().isArray()) {
-        // LOOK IT BY HASH (FASTER THAN COMPARE EACH SINGLE VALUE)
-        final Object[] array = (Object[]) fieldValue;
+      Object key = null;
+      if (groupedResult == null)
+        groupedResult = new LinkedHashMap<Object, ORuntimeResult>();
 
-        final StringBuilder keyArray = new StringBuilder();
-        for (Object o : array) {
-          if (keyArray.length() > 0)
-            keyArray.append(",");
-          if (o != null)
-            keyArray.append(o instanceof OIdentifiable ? ((OIdentifiable) o).getIdentity().toString() : o.toString());
-          else
-            keyArray.append("null");
-        }
+      if (fieldValue != null) {
+        if (fieldValue.getClass().isArray()) {
+          // LOOK IT BY HASH (FASTER THAN COMPARE EACH SINGLE VALUE)
+          final Object[] array = (Object[]) fieldValue;
 
-        key = keyArray.toString();
-      } else
-        // LOKUP FOR THE FIELD
-        key = fieldValue;
+          final StringBuilder keyArray = new StringBuilder();
+          for (Object o : array) {
+            if (keyArray.length() > 0)
+              keyArray.append(",");
+            if (o != null)
+              keyArray.append(o instanceof OIdentifiable ? ((OIdentifiable) o).getIdentity().toString() : o.toString());
+            else
+              keyArray.append("null");
+          }
+
+          key = keyArray.toString();
+        } else
+          // LOKUP FOR THE FIELD
+          key = fieldValue;
+      }
+
+      group = groupedResult.get(key);
+      if (group == null) {
+        group = new ORuntimeResult(fieldValue, createProjectionFromDefinition(), resultCount, context);
+        groupedResult.put(key, group);
+      }
+      return group;
+    } finally {
+      context.setVariable("projectionElapsed", projectionElapsed + (System.currentTimeMillis() - begin));
     }
-
-    group = groupedResult.get(key);
-    if (group == null) {
-      group = new ORuntimeResult(fieldValue, createProjectionFromDefinition(), resultCount, context);
-      groupedResult.put(key, group);
-    }
-    return group;
   }
 
   private int getQueryFetchLimit() {
@@ -581,7 +570,7 @@ public class OCommandExecutorSQLSelect extends OCommandExecutorSQLResultsetAbstr
       if (word.length() == 0)
         // END CLAUSE: SET AS ASC BY DEFAULT
         fieldOrdering = KEYWORD_ASC;
-      else if (word.equals(KEYWORD_LIMIT)) {
+      else if (word.equals(KEYWORD_LIMIT) || word.equals(KEYWORD_SKIP)) {
         // NEXT CLAUSE: SET AS ASC BY DEFAULT
         fieldOrdering = KEYWORD_ASC;
         parserGoBack();
@@ -706,9 +695,12 @@ public class OCommandExecutorSQLSelect extends OCommandExecutorSQLResultsetAbstr
 
           return true;
         } catch (Exception e) {
-          OLogManager.instance().error(this,
-              "Error on using index %s in query. Probably you need to rebuild indexes. Now executing query using cluster scan", e,
-              index);
+          OLogManager
+              .instance()
+              .error(
+                  this,
+                  "Error on using index %s in query '%s'. Probably you need to rebuild indexes. Now executing query using cluster scan",
+                  e, index, request != null && request.getText() != null ? request.getText() : "");
           return false;
         }
       }
@@ -1122,10 +1114,14 @@ public class OCommandExecutorSQLSelect extends OCommandExecutorSQLResultsetAbstr
         parseIndexSearchResult(entries);
       } else {
         final Object right = compiledFilter.getRootCondition().getRight();
-        final Object keyValue = getIndexKey(index.getDefinition(), right);
+        Object keyValue = getIndexKey(index.getDefinition(), right);
 
         final Object res;
         if (index.getDefinition().getParamCount() == 1) {
+          // CONVERT BEFORE SEARCH IF NEEDED
+          final OType type = index.getDefinition().getTypes()[0];
+          keyValue = OType.convert(keyValue, type.getDefaultJavaType());
+
           res = index.get(keyValue);
         } else {
           final Object secondKey = getIndexKey(index.getDefinition(), right);
@@ -1397,8 +1393,8 @@ public class OCommandExecutorSQLSelect extends OCommandExecutorSQLResultsetAbstr
           if (involvedIndexes != null && !involvedIndexes.isEmpty()) {
             for (OIndex<?> idx : involvedIndexes) {
               if (idx.getKeyTypes().length == 1 && idx.supportsOrderedIterations()) {
-                if (idx.getKeySize() < MIN_THRESHOLD_USE_INDEX_AS_TARGET || compiledFilter == null) {
-
+                if (idx.getType().startsWith("UNIQUE") && idx.getKeySize() < MIN_THRESHOLD_USE_INDEX_AS_TARGET
+                    || compiledFilter == null) {
                   if (orderByFirstField.getValue().equalsIgnoreCase("asc"))
                     target = (Iterator<? extends OIdentifiable>) idx.valuesIterator();
                   else

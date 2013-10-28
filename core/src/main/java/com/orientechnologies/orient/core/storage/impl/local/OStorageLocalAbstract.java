@@ -22,6 +22,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
 
 import com.orientechnologies.common.log.OLogManager;
 import com.orientechnologies.orient.core.command.OCommandOutputListener;
@@ -88,9 +89,16 @@ public abstract class OStorageLocalAbstract extends OStorageEmbedded implements 
   }
 
   @Override
-  public void backup(OutputStream out, Map<String, Object> options) throws IOException {
-    freeze(true);
+  public void backup(OutputStream out, Map<String, Object> options, final Callable<Object> callable) throws IOException {
+    freeze(false);
     try {
+      if (callable != null)
+        try {
+          callable.call();
+        } catch (Exception e) {
+          OLogManager.instance().error(this, "Error on callback invocation during backup", e);
+        }
+
       OZIPCompressionUtil.compressDirectory(getStoragePath(), out);
     } finally {
       release();
@@ -98,7 +106,7 @@ public abstract class OStorageLocalAbstract extends OStorageEmbedded implements 
   }
 
   @Override
-  public void restore(InputStream in, Map<String, Object> options) throws IOException {
+  public void restore(InputStream in, Map<String, Object> options, final Callable<Object> callable) throws IOException {
     if (!isClosed())
       close();
 

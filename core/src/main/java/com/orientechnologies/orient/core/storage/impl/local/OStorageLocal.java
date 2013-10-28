@@ -23,16 +23,14 @@ import java.util.concurrent.Callable;
 
 import com.orientechnologies.common.concur.lock.OLockManager.LOCK;
 import com.orientechnologies.common.concur.lock.OModificationLock;
-import com.orientechnologies.common.directmemory.ODirectMemory;
-import com.orientechnologies.common.directmemory.ODirectMemoryFactory;
 import com.orientechnologies.common.exception.OException;
 import com.orientechnologies.common.io.OFileUtils;
 import com.orientechnologies.common.io.OIOException;
 import com.orientechnologies.common.io.OIOUtils;
 import com.orientechnologies.common.log.OLogManager;
 import com.orientechnologies.common.parser.OSystemVariableResolver;
-import com.orientechnologies.common.profiler.OProfiler.METRIC_TYPE;
-import com.orientechnologies.common.profiler.OProfiler.OProfilerHookValue;
+import com.orientechnologies.common.profiler.OAbstractProfiler.OProfilerHookValue;
+import com.orientechnologies.common.profiler.OProfilerMBean.METRIC_TYPE;
 import com.orientechnologies.common.util.OArrays;
 import com.orientechnologies.orient.core.Orient;
 import com.orientechnologies.orient.core.command.OCommandOutputListener;
@@ -55,7 +53,6 @@ import com.orientechnologies.orient.core.memory.OMemoryWatchDog;
 import com.orientechnologies.orient.core.metadata.OMetadataDefault;
 import com.orientechnologies.orient.core.storage.*;
 import com.orientechnologies.orient.core.storage.fs.OMMapManagerLocator;
-import com.orientechnologies.orient.core.storage.impl.local.eh.OClusterLocalEH;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OWriteAheadLog;
 import com.orientechnologies.orient.core.tx.OTransaction;
 import com.orientechnologies.orient.core.version.ORecordVersion;
@@ -109,22 +106,15 @@ public class OStorageLocal extends OStorageLocalAbstract {
 
     installProfilerHooks();
 
-    final ODirectMemory directMemory = ODirectMemoryFactory.INSTANCE.directMemory();
+    long diskCacheSize = OGlobalConfiguration.DISK_CACHE_SIZE.getValueAsLong() * 1024 * 1024;
+    long writeCacheSize = (long) Math.floor((((double) OGlobalConfiguration.DISK_WRITE_CACHE_PART.getValueAsInteger()) / 100.0)
+        * diskCacheSize);
+    long readCacheSize = diskCacheSize - writeCacheSize;
 
-    if (directMemory != null) {
-      long diskCacheSize = OGlobalConfiguration.DISK_CACHE_SIZE.getValueAsLong() * 1024 * 1024;
-      long writeCacheSize = (long) Math.floor((((double) OGlobalConfiguration.DISK_WRITE_CACHE_PART.getValueAsInteger()) / 100.0)
-          * diskCacheSize);
-      long readCacheSize = diskCacheSize - writeCacheSize;
-
-      diskCache = new OReadWriteDiskCache(readCacheSize, writeCacheSize,
-          OGlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() * 1024,
-          OGlobalConfiguration.DISK_WRITE_CACHE_PAGE_TTL.getValueAsLong() * 1000,
-          OGlobalConfiguration.DISK_WRITE_CACHE_PAGE_FLUSH_INTERVAL.getValueAsInteger(), this, null, false, true);
-    }
-
-    else
-      diskCache = null;
+    diskCache = new OReadWriteDiskCache(readCacheSize, writeCacheSize,
+        OGlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() * 1024,
+        OGlobalConfiguration.DISK_WRITE_CACHE_PAGE_TTL.getValueAsLong() * 1000,
+        OGlobalConfiguration.DISK_WRITE_CACHE_PAGE_FLUSH_INTERVAL.getValueAsInteger(), this, null, false, true);
   }
 
   public synchronized void open(final String iUserName, final String iUserPassword, final Map<String, Object> iProperties) {
@@ -150,10 +140,7 @@ public class OStorageLocal extends OStorageLocalAbstract {
       pos = registerDataSegment(new OStorageDataConfiguration(configuration, OStorage.DATA_DEFAULT_NAME, 0, getStoragePath()));
       dataSegments[pos].open();
 
-      if (OGlobalConfiguration.USE_LHPEPS_CLUSTER.getValueAsBoolean())
-        addEHDefaultClusters();
-      else
-        addDefaultClusters();
+      addDefaultClusters();
 
       // REGISTER DATA SEGMENT
       for (int i = 0; i < configuration.dataSegments.size(); ++i) {
@@ -186,8 +173,7 @@ public class OStorageLocal extends OStorageLocalAbstract {
               if (clusters[i] != null && clusters[i] instanceof OClusterLocal)
                 clusters[i].close();
 
-              clusters[i] = Orient.instance().getClusterFactory()
-                  .createCluster(OClusterLocal.TYPE, clusters[i] instanceof OClusterLocal);
+              clusters[i] = Orient.instance().getClusterFactory().createCluster(OClusterLocal.TYPE);
               clusters[i].configure(this, clusterConfig);
               clusterMap.put(clusters[i].getName(), clusters[i]);
               clusters[i].open();
@@ -223,7 +209,7 @@ public class OStorageLocal extends OStorageLocalAbstract {
     } finally {
       lock.releaseExclusiveLock();
 
-      Orient.instance().getProfiler().stopChrono("db." + name + ".open", "Open a local database", timer, "db.*.open");
+      Orient.instance().getProfiler().stopChrono("db." + name + ".open", "Open a database", timer, "db.*.open");
     }
   }
 
@@ -244,21 +230,6 @@ public class OStorageLocal extends OStorageLocalAbstract {
 
     defaultClusterId = createClusterFromConfig(new OStoragePhysicalClusterConfigurationLocal(configuration, clusters.length, 0,
         CLUSTER_DEFAULT_NAME));
-  }
-
-  private void addEHDefaultClusters() throws IOException {
-    createClusterFromConfig(new OStoragePhysicalClusterConfigurationLocal(configuration, clusters.length, 0,
-        OMetadataDefault.CLUSTER_INTERNAL_NAME));
-    configuration.load();
-
-    createClusterFromConfig(new OStoragePhysicalClusterConfigurationLocal(configuration, clusters.length, 0,
-        OMetadataDefault.CLUSTER_INDEX_NAME));
-
-    createClusterFromConfig(new OStoragePhysicalClusterConfigurationLocal(configuration, clusters.length, 0,
-        OMetadataDefault.CLUSTER_MANUAL_INDEX_NAME));
-
-    defaultClusterId = createClusterFromConfig(new OStorageEHClusterConfiguration(configuration, clusters.length,
-        CLUSTER_DEFAULT_NAME, null, 0));
   }
 
   public void create(final Map<String, Object> iProperties) {
@@ -312,7 +283,7 @@ public class OStorageLocal extends OStorageLocalAbstract {
     } finally {
       lock.releaseExclusiveLock();
 
-      Orient.instance().getProfiler().stopChrono("db." + name + ".create", "Create a local database", timer, "db.*.create");
+      Orient.instance().getProfiler().stopChrono("db." + name + ".create", "Create a database", timer, "db.*.create");
     }
   }
 
@@ -378,7 +349,7 @@ public class OStorageLocal extends OStorageLocalAbstract {
     } finally {
       lock.releaseExclusiveLock();
 
-      Orient.instance().getProfiler().stopChrono("db." + name + ".close", "Close a local database", timer, "db.*.close");
+      Orient.instance().getProfiler().stopChrono("db." + name + ".close", "Close a database", timer, "db.*.close");
     }
   }
 
@@ -461,7 +432,7 @@ public class OStorageLocal extends OStorageLocalAbstract {
     } finally {
       lock.releaseExclusiveLock();
 
-      Orient.instance().getProfiler().stopChrono("db." + name + ".drop", "Drop a local database", timer, "db.*.drop");
+      Orient.instance().getProfiler().stopChrono("db." + name + ".drop", "Drop a database", timer, "db.*.drop");
     }
   }
 
@@ -829,7 +800,7 @@ public class OStorageLocal extends OStorageLocalAbstract {
             break;
           }
 
-        cluster = Orient.instance().getClusterFactory().createCluster(iClusterType, forceListBased);
+        cluster = Orient.instance().getClusterFactory().createCluster(iClusterType);
         cluster.configure(this, clusterPos, iClusterName, iLocation, getDataSegmentIdByName(iDataSegmentName), iParameters);
       } else
         cluster = null;
@@ -855,7 +826,8 @@ public class OStorageLocal extends OStorageLocalAbstract {
 
   public int addCluster(String iClusterType, String iClusterName, int iRequestedId, String iLocation, String iDataSegmentName,
       boolean forceListBased, Object... iParameters) {
-    throw new UnsupportedOperationException();
+    throw new UnsupportedOperationException("This operation is unsupported for " + getType()
+        + " storage. If you are doing import please use parameter -preserveClusterIDs=false .");
   }
 
   public ODataLocal[] getDataSegments() {
@@ -1383,7 +1355,7 @@ public class OStorageLocal extends OStorageLocalAbstract {
     } finally {
       lock.releaseExclusiveLock();
 
-      Orient.instance().getProfiler().stopChrono("db." + name + ".synch", "Synch a local database", timer, "db.*.synch");
+      Orient.instance().getProfiler().stopChrono("db." + name + ".synch", "Synch a database", timer, "db.*.synch");
     }
   }
 
@@ -1409,7 +1381,7 @@ public class OStorageLocal extends OStorageLocalAbstract {
       lock.releaseExclusiveLock();
 
       Orient.instance().getProfiler()
-          .stopChrono("db." + name + "record.synch", "Synch a record to local database", timer, "db.*.record.synch");
+          .stopChrono("db." + name + "record.synch", "Synch a record to database", timer, "db.*.record.synch");
     }
   }
 
@@ -1664,7 +1636,7 @@ public class OStorageLocal extends OStorageLocalAbstract {
     if (cluster instanceof OClusterLocal && iConfig instanceof OStorageEHClusterConfiguration)
       clusterMap.remove(iConfig.getName());
     else if (cluster != null) {
-      if (cluster instanceof OClusterLocal || cluster instanceof OClusterLocalEH) {
+      if (cluster instanceof OClusterLocal) {
         // ALREADY CONFIGURED, JUST OVERWRITE CONFIG
         cluster.configure(this, iConfig);
       }
@@ -1768,14 +1740,8 @@ public class OStorageLocal extends OStorageLocalAbstract {
       OLogManager.instance().error(this, "Error on creating record in cluster: " + cluster, ioe);
       return null;
     } finally {
-      Orient.instance().getProfiler()
-          .stopChrono(PROFILER_CREATE_RECORD, "Create a record in local database", timer, "db.*.createRecord");
+      Orient.instance().getProfiler().stopChrono(PROFILER_CREATE_RECORD, "Create a record in database", timer, "db.*.createRecord");
     }
-  }
-
-  @Override
-  public boolean isHashClustersAreUsed() {
-    return OGlobalConfiguration.USE_LHPEPS_CLUSTER.getValueAsBoolean();
   }
 
   @Override
@@ -1820,8 +1786,7 @@ public class OStorageLocal extends OStorageLocalAbstract {
       if (iAtomicLock)
         lock.releaseSharedLock();
 
-      Orient.instance().getProfiler()
-          .stopChrono(PROFILER_READ_RECORD, "Read a record from local database", timer, "db.*.readRecord");
+      Orient.instance().getProfiler().stopChrono(PROFILER_READ_RECORD, "Read a record from database", timer, "db.*.readRecord");
     }
   }
 
@@ -1903,8 +1868,7 @@ public class OStorageLocal extends OStorageLocalAbstract {
       OLogManager.instance().error(this, "Error on updating record " + rid + " (cluster: " + iClusterSegment + ")", e);
 
     } finally {
-      Orient.instance().getProfiler()
-          .stopChrono(PROFILER_UPDATE_RECORD, "Update a record to local database", timer, "db.*.updateRecord");
+      Orient.instance().getProfiler().stopChrono(PROFILER_UPDATE_RECORD, "Update a record to database", timer, "db.*.updateRecord");
     }
 
     return null;
@@ -1954,7 +1918,7 @@ public class OStorageLocal extends OStorageLocalAbstract {
       OLogManager.instance().error(this, "Error on deleting record " + iRid + "( cluster: " + iClusterSegment + ")", e);
     } finally {
       Orient.instance().getProfiler()
-          .stopChrono(PROFILER_DELETE_RECORD, "Delete a record from local database", timer, "db.*.deleteRecord");
+          .stopChrono(PROFILER_DELETE_RECORD, "Delete a record from database", timer, "db.*.deleteRecord");
     }
 
     return null;
@@ -1988,7 +1952,7 @@ public class OStorageLocal extends OStorageLocalAbstract {
     Orient
         .instance()
         .getProfiler()
-        .registerHookValue("db." + name + ".data.holes", "Number of the holes in local database", METRIC_TYPE.COUNTER,
+        .registerHookValue("db." + name + ".data.holes", "Number of the holes in database", METRIC_TYPE.COUNTER,
             new OProfilerHookValue() {
               public Object getValue() {
                 return getHoles();
@@ -1997,7 +1961,7 @@ public class OStorageLocal extends OStorageLocalAbstract {
     Orient
         .instance()
         .getProfiler()
-        .registerHookValue("db." + name + ".data.holeSize", "Size of the holes in local database", METRIC_TYPE.SIZE,
+        .registerHookValue("db." + name + ".data.holeSize", "Size of the holes in database", METRIC_TYPE.SIZE,
             new OProfilerHookValue() {
               public Object getValue() {
                 return getHoleSize();

@@ -137,14 +137,18 @@
         </fileSet>
 
         <!--
+         | Plugins
+        -->
+        <fileSet>
+            <directory>${basedir}/../../server/plugins</directory>
+            <outputDirectory>plugins</outputDirectory>
+        </fileSet>
+
+        <!--
          | Web part
         -->
         <fileSet>
             <directory>${basedir}/../../server/src/site</directory>
-            <outputDirectory>www</outputDirectory>
-        </fileSet>
-        <fileSet>
-            <directory>${basedir}/../../graphdb/src/site</directory>
             <outputDirectory>www</outputDirectory>
         </fileSet>
 

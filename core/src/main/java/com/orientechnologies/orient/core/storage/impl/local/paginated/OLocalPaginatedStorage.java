@@ -19,21 +19,8 @@ package com.orientechnologies.orient.core.storage.impl.local.paginated;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.*;
 
 import com.orientechnologies.common.concur.lock.OLockManager;
 import com.orientechnologies.common.concur.lock.OModificationLock;
@@ -61,41 +48,16 @@ import com.orientechnologies.orient.core.id.ORID;
 import com.orientechnologies.orient.core.id.ORecordId;
 import com.orientechnologies.orient.core.index.engine.OLocalHashTableIndexEngine;
 import com.orientechnologies.orient.core.index.engine.OSBTreeIndexEngine;
-import com.orientechnologies.orient.core.index.hashindex.local.cache.OCacheEntry;
-import com.orientechnologies.orient.core.index.hashindex.local.cache.OCachePointer;
-import com.orientechnologies.orient.core.index.hashindex.local.cache.ODiskCache;
-import com.orientechnologies.orient.core.index.hashindex.local.cache.OPageDataVerificationError;
-import com.orientechnologies.orient.core.index.hashindex.local.cache.OReadWriteDiskCache;
-import com.orientechnologies.orient.core.index.hashindex.local.cache.OWOWCache;
+import com.orientechnologies.orient.core.index.hashindex.local.cache.*;
 import com.orientechnologies.orient.core.memory.OMemoryWatchDog;
 import com.orientechnologies.orient.core.metadata.OMetadataDefault;
 import com.orientechnologies.orient.core.record.impl.ODocument;
-import com.orientechnologies.orient.core.storage.OCluster;
-import com.orientechnologies.orient.core.storage.OPhysicalPosition;
-import com.orientechnologies.orient.core.storage.ORawBuffer;
-import com.orientechnologies.orient.core.storage.ORecordCallback;
-import com.orientechnologies.orient.core.storage.ORecordMetadata;
-import com.orientechnologies.orient.core.storage.OStorageOperationResult;
+import com.orientechnologies.orient.core.storage.*;
 import com.orientechnologies.orient.core.storage.impl.local.ODataLocal;
 import com.orientechnologies.orient.core.storage.impl.local.OStorageConfigurationSegment;
 import com.orientechnologies.orient.core.storage.impl.local.OStorageLocalAbstract;
 import com.orientechnologies.orient.core.storage.impl.local.OStorageVariableParser;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OAbstractCheckPointStartRecord;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OAtomicUnitEndRecord;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OAtomicUnitStartRecord;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OCheckpointEndRecord;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.ODirtyPage;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.ODirtyPagesRecord;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OFullCheckpointStartRecord;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OFuzzyCheckpointEndRecord;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OFuzzyCheckpointStartRecord;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OLogSequenceNumber;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OOperationUnitId;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OOperationUnitRecord;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OPaginatedClusterFactory;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OUpdatePageRecord;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OWALRecord;
-import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OWriteAheadLog;
+import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.*;
 import com.orientechnologies.orient.core.tx.OTransaction;
 import com.orientechnologies.orient.core.tx.OTransactionAbstract;
 import com.orientechnologies.orient.core.tx.OTxListener;
@@ -674,7 +636,7 @@ public class OLocalPaginatedStorage extends OStorageLocalAbstract {
     } finally {
       lock.releaseExclusiveLock();
 
-      Orient.instance().getProfiler().stopChrono("db." + name + ".close", "Close a local database", timer, "db.*.close");
+      Orient.instance().getProfiler().stopChrono("db." + name + ".close", "Close a database", timer, "db.*.close");
     }
   }
 
@@ -754,7 +716,7 @@ public class OLocalPaginatedStorage extends OStorageLocalAbstract {
     } finally {
       lock.releaseExclusiveLock();
 
-      Orient.instance().getProfiler().stopChrono("db." + name + ".drop", "Drop a local database", timer, "db.*.drop");
+      Orient.instance().getProfiler().stopChrono("db." + name + ".drop", "Drop a database", timer, "db.*.drop");
     }
   }
 
@@ -1053,6 +1015,8 @@ public class OLocalPaginatedStorage extends OStorageLocalAbstract {
       final ORecordCallback<OClusterPosition> callback) {
     checkOpeness();
 
+    final long timer = Orient.instance().getProfiler().startChrono();
+
     final OCluster cluster = getClusterById(rid.clusterId);
     cluster.getExternalModificationLock().requestModificationLock();
     try {
@@ -1098,6 +1062,7 @@ public class OLocalPaginatedStorage extends OStorageLocalAbstract {
       }
     } finally {
       cluster.getExternalModificationLock().releaseModificationLock();
+      Orient.instance().getProfiler().stopChrono(PROFILER_CREATE_RECORD, "Create a record in database", timer, "db.*.createRecord");
     }
   }
 
@@ -1131,11 +1096,6 @@ public class OLocalPaginatedStorage extends OStorageLocalAbstract {
   }
 
   @Override
-  public boolean isHashClustersAreUsed() {
-    return OGlobalConfiguration.USE_LHPEPS_CLUSTER.getValueAsBoolean();
-  }
-
-  @Override
   public OStorageOperationResult<ORawBuffer> readRecord(final ORecordId iRid, final String iFetchPlan, boolean iIgnoreCache,
       ORecordCallback<ORawBuffer> iCallback, boolean loadTombstones) {
     checkOpeness();
@@ -1148,6 +1108,8 @@ public class OLocalPaginatedStorage extends OStorageLocalAbstract {
 
     if (!rid.isPersistent())
       throw new IllegalArgumentException("Cannot read record " + rid + " since the position is invalid in database '" + name + '\'');
+
+    final long timer = Orient.instance().getProfiler().startChrono();
 
     clusterSegment.getExternalModificationLock().requestModificationLock();
     try {
@@ -1171,12 +1133,16 @@ public class OLocalPaginatedStorage extends OStorageLocalAbstract {
       }
     } finally {
       clusterSegment.getExternalModificationLock().releaseModificationLock();
+
+      Orient.instance().getProfiler().stopChrono(PROFILER_READ_RECORD, "Read a record from database", timer, "db.*.readRecord");
     }
   }
 
   public OStorageOperationResult<ORecordVersion> updateRecord(final ORecordId rid, final byte[] content,
       final ORecordVersion version, final byte recordType, final int mode, ORecordCallback<ORecordVersion> callback) {
     checkOpeness();
+
+    final long timer = Orient.instance().getProfiler().startChrono();
 
     final OCluster cluster = getClusterById(rid.clusterId);
 
@@ -1248,6 +1214,7 @@ public class OLocalPaginatedStorage extends OStorageLocalAbstract {
       }
     } finally {
       cluster.getExternalModificationLock().releaseModificationLock();
+      Orient.instance().getProfiler().stopChrono(PROFILER_UPDATE_RECORD, "Update a record to database", timer, "db.*.updateRecord");
     }
   }
 
@@ -1255,6 +1222,8 @@ public class OLocalPaginatedStorage extends OStorageLocalAbstract {
   public OStorageOperationResult<Boolean> deleteRecord(final ORecordId rid, final ORecordVersion version, final int mode,
       ORecordCallback<Boolean> callback) {
     checkOpeness();
+
+    final long timer = Orient.instance().getProfiler().startChrono();
 
     final OCluster cluster = getClusterById(rid.clusterId);
 
@@ -1295,6 +1264,8 @@ public class OLocalPaginatedStorage extends OStorageLocalAbstract {
       }
     } finally {
       cluster.getExternalModificationLock().releaseModificationLock();
+      Orient.instance().getProfiler()
+          .stopChrono(PROFILER_DELETE_RECORD, "Delete a record from database", timer, "db.*.deleteRecord");
     }
 
     return new OStorageOperationResult<Boolean>(false);
@@ -1610,7 +1581,7 @@ public class OLocalPaginatedStorage extends OStorageLocalAbstract {
     } finally {
       lock.releaseExclusiveLock();
 
-      Orient.instance().getProfiler().stopChrono("db." + name + ".synch", "Synch a local database", timer, "db.*.synch");
+      Orient.instance().getProfiler().stopChrono("db." + name + ".synch", "Synch a database", timer, "db.*.synch");
     }
   }
 

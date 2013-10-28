@@ -16,13 +16,7 @@
 package com.orientechnologies.orient.core.index;
 
 import java.io.IOException;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 import com.orientechnologies.common.listener.OProgressListener;
 import com.orientechnologies.common.log.OLogManager;
@@ -106,7 +100,7 @@ public class OIndexManagerShared extends OIndexManagerAbstract implements OIndex
     final String valueContainerAlgorithm;
     if (OClass.INDEX_TYPE.NOTUNIQUE.toString().equals(iType) || OClass.INDEX_TYPE.NOTUNIQUE_HASH_INDEX.toString().equals(iType)
         || OClass.INDEX_TYPE.FULLTEXT_HASH_INDEX.toString().equals(iType) || OClass.INDEX_TYPE.FULLTEXT.toString().equals(iType)) {
-      if (storage.getType().equals(OEngineLocalPaginated.NAME)
+      if ((storage.getType().equals(OEngineLocalPaginated.NAME) || storage.getType().equals(OEngineLocal.NAME))
           && OGlobalConfiguration.INDEX_NOTUNIQUE_USE_SBTREE_CONTAINER_BY_DEFAULT.getValueAsBoolean()) {
         valueContainerAlgorithm = ODefaultIndexFactory.SBTREEBONSAI_VALUE_CONTAINER;
       } else {
@@ -218,7 +212,7 @@ public class OIndexManagerShared extends OIndexManagerAbstract implements OIndex
           final ODocument d = indexConfigurationIterator.next();
           try {
             index = OIndexes.createIndex(getDatabase(), (String) d.field(OIndexInternal.CONFIG_TYPE),
-                (String) d.field(OIndexInternal.ALGORITHM), document.<String> field(OIndexInternal.VALUE_CONTAINER_ALGORITHM));
+                (String) d.field(OIndexInternal.ALGORITHM), d.<String> field(OIndexInternal.VALUE_CONTAINER_ALGORITHM));
 
             OIndexInternal.IndexMetadata newIndexMetadata = index.loadMetadata(d);
             final String normalizedName = newIndexMetadata.getName().toLowerCase();
@@ -444,7 +438,7 @@ public class OIndexManagerShared extends OIndexManagerAbstract implements OIndex
 
             OLogManager.instance().info(this, "%d indexes were restored successfully, %d errors", ok, errors);
           } catch (Exception e) {
-            OLogManager.instance().error(this, "Error when attempt to restore indexes after crash was performed.");
+            OLogManager.instance().error(this, "Error when attempt to restore indexes after crash was performed.", e);
           }
         }
       };

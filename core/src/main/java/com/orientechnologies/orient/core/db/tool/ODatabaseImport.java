@@ -77,7 +77,7 @@ public class ODatabaseImport extends ODatabaseImpExpAbstract {
 
   private OIndex<OIdentifiable>      exportImportHashTable;
 
-  private boolean                    preserveClusterIDs     = false;
+  private boolean                    preserveClusterIDs     = true;
 
   private Set<String>                indexesToRebuild       = new HashSet<String>();
 
@@ -145,6 +145,8 @@ public class ODatabaseImport extends ODatabaseImpExpAbstract {
           indexesToRebuild.add(index.getName().toLowerCase());
       }
 
+      removeDefaultNonSecurityClasses();
+
       String tag;
       while (jsonReader.hasNext() && jsonReader.lastChar() != '}') {
         tag = jsonReader.readString(OJSONReader.FIELD_ASSIGNMENT);
@@ -189,6 +191,40 @@ public class ODatabaseImport extends ODatabaseImpExpAbstract {
     }
 
     return this;
+  }
+
+  private void removeDefaultNonSecurityClasses() {
+    listener.onMessage("\nRemoving all default non security classes");
+
+    OSchema schema = database.getMetadata().getSchema();
+    Collection<OClass> classes = schema.getClasses();
+
+    final AbstractList<String> classesSortedByInheritance = new ArrayList<String>();
+    for (OClass dbClass : classes) {
+      classesSortedByInheritance.add(dbClass.getName());
+    }
+
+    for (OClass dbClass : classes) {
+      OClass parentClass = dbClass.getSuperClass();
+      if (parentClass != null) {
+        classesSortedByInheritance.remove(dbClass.getName());
+        final int parentIndex = classesSortedByInheritance.indexOf(parentClass.getName());
+        classesSortedByInheritance.add(parentIndex, dbClass.getName());
+      }
+    }
+
+    for (String className : classesSortedByInheritance) {
+      if (!className.equalsIgnoreCase(ORole.CLASS_NAME) && !className.equalsIgnoreCase(OUser.CLASS_NAME)
+          && !className.equalsIgnoreCase(OSecurityShared.IDENTITY_CLASSNAME)) {
+        schema.dropClass(className);
+        listener.onMessage("\nClass " + className + " was removed.");
+      }
+    }
+
+    schema.save();
+    schema.reload();
+
+    listener.onMessage("\nRemoving all default non security classes ... DONE.");
   }
 
   private void importInfo() throws IOException, ParseException {
@@ -247,7 +283,7 @@ public class ODatabaseImport extends ODatabaseImpExpAbstract {
       do {
         final String value = jsonReader.readString(OJSONReader.NEXT_IN_ARRAY).trim();
 
-        if (!value.isEmpty()) {
+        if (!value.isEmpty() && !indexName.equalsIgnoreCase(EXPORT_IMPORT_MAP_NAME)) {
           doc = (ODocument) ORecordSerializerJSON.INSTANCE.fromString(value, doc, null);
           doc.setLazyLoad(false);
 
@@ -866,22 +902,26 @@ public class ODatabaseImport extends ODatabaseImpExpAbstract {
 
       jsonReader.readNext(OJSONReader.NEXT_IN_ARRAY);
 
-      listener.onMessage("\n- Index '" + indexName + "'...");
       // drop automatically created indexes
-      indexManager.dropIndex(indexName);
-      indexesToRebuild.remove(indexName.toLowerCase());
+      if (!indexName.equalsIgnoreCase(EXPORT_IMPORT_MAP_NAME)) {
+        listener.onMessage("\n- Index '" + indexName + "'...");
 
-      int[] clusterIdsToIndex = new int[clustersToIndex.size()];
+        indexManager.dropIndex(indexName);
+        indexesToRebuild.remove(indexName.toLowerCase());
 
-      int i = 0;
-      for (final String clusterName : clustersToIndex) {
-        clusterIdsToIndex[i] = database.getClusterIdByName(clusterName);
-        i++;
+        int[] clusterIdsToIndex = new int[clustersToIndex.size()];
+
+        int i = 0;
+        for (final String clusterName : clustersToIndex) {
+          clusterIdsToIndex[i] = database.getClusterIdByName(clusterName);
+          i++;
+        }
+
+        indexManager.createIndex(indexName, indexType, indexDefinition, clusterIdsToIndex, null);
+        n++;
+        listener.onMessage("OK");
+
       }
-
-      indexManager.createIndex(indexName, indexType, indexDefinition, clusterIdsToIndex, null);
-      n++;
-      listener.onMessage("OK");
     }
 
     listener.onMessage("\nDone. Created " + n + " indexes.");

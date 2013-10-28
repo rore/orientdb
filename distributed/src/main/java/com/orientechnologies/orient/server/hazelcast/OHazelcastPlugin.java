@@ -44,7 +44,7 @@ import com.hazelcast.core.MembershipListener;
 import com.orientechnologies.common.io.OFileUtils;
 import com.orientechnologies.common.log.OLogManager;
 import com.orientechnologies.common.parser.OSystemVariableResolver;
-import com.orientechnologies.common.profiler.OProfilerData.OProfilerEntry;
+import com.orientechnologies.common.profiler.OProfilerEntry;
 import com.orientechnologies.common.util.OArrays;
 import com.orientechnologies.orient.core.Orient;
 import com.orientechnologies.orient.core.db.ODatabase;
@@ -219,9 +219,9 @@ public class OHazelcastPlugin extends ODistributedAbstractPlugin implements Memb
     if (membershipListenerRegistration != null) {
       hazelcastInstance.getCluster().removeMembershipListener(membershipListenerRegistration);
     }
-    
+
     hazelcastInstance.shutdown();
-    
+
     setStatus(STATUS.OFFLINE);
 
     getConfigurationMap().remove(CONFIG_NODE_PREFIX + getLocalNodeId());
@@ -434,11 +434,13 @@ public class OHazelcastPlugin extends ODistributedAbstractPlugin implements Memb
     final Member member = iEvent.getMember();
 
     final String nodeName = getNodeName(member);
-    cachedClusterNodes.remove(nodeName);
+    if (nodeName != null) {
+      cachedClusterNodes.remove(nodeName);
 
-    for (String dbName : messageService.getDatabases()) {
-      final OHazelcastDistributedDatabase db = messageService.getDatabase(dbName);
-      db.removeNodeInConfiguration(nodeName, false);
+      for (String dbName : messageService.getDatabases()) {
+        final OHazelcastDistributedDatabase db = messageService.getDatabase(dbName);
+        db.removeNodeInConfiguration(nodeName, false);
+      }
     }
 
     OClientConnectionManager.instance().pushDistribCfg2Clients(getClusterConfiguration());
@@ -661,7 +663,7 @@ public class OHazelcastPlugin extends ODistributedAbstractPlugin implements Memb
 
             final ByteArrayInputStream in = new ByteArrayInputStream(result.getBuffer());
             try {
-              db.restore(in, null);
+              db.restore(in, null, null);
               in.close();
 
               db.close();
@@ -672,7 +674,7 @@ public class OHazelcastPlugin extends ODistributedAbstractPlugin implements Memb
 
               distrDatabase.setOnline();
 
-              ODistributedServerLog.warn(this, getLocalNodeName(), null, DIRECTION.NONE, "database %s in online", databaseName);
+              ODistributedServerLog.warn(this, getLocalNodeName(), null, DIRECTION.NONE, "database %s is online", databaseName);
 
             } catch (IOException e) {
               ODistributedServerLog.warn(this, getLocalNodeName(), null, DIRECTION.IN,
