@@ -19,9 +19,6 @@ package com.orientechnologies.orient.core.index.sbtreebonsai.local;
 import java.io.IOException;
 import java.util.*;
 
-import com.orientechnologies.common.collection.OAlwaysGreaterKey;
-import com.orientechnologies.common.collection.OAlwaysLessKey;
-import com.orientechnologies.common.collection.OCompositeKey;
 import com.orientechnologies.common.comparator.ODefaultComparator;
 import com.orientechnologies.common.log.OLogManager;
 import com.orientechnologies.common.serialization.types.OBinarySerializer;
@@ -53,14 +50,12 @@ import com.orientechnologies.orient.core.storage.impl.local.paginated.wal.OWrite
  * @see OSBTree
  */
 public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInternal<K, V> {
-  private static final OAlwaysLessKey       ALWAYS_LESS_KEY    = new OAlwaysLessKey();
-  private static final OAlwaysGreaterKey    ALWAYS_GREATER_KEY = new OAlwaysGreaterKey();
-  private static final int                  PAGE_SIZE          = OGlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() * 1024;
-  private static final OBonsaiBucketPointer SYS_BUCKET         = new OBonsaiBucketPointer(0, 0);
+  private static final int                  PAGE_SIZE  = OGlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() * 1024;
+  private static final OBonsaiBucketPointer SYS_BUCKET = new OBonsaiBucketPointer(0, 0);
 
   private OBonsaiBucketPointer              rootBucketPointer;
 
-  private final Comparator<? super K>       comparator         = ODefaultComparator.INSTANCE;
+  private final Comparator<? super K>       comparator = ODefaultComparator.INSTANCE;
 
   private OStorageLocalAbstract             storage;
   private String                            name;
@@ -71,17 +66,14 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
 
   private long                              fileId;
 
-  private int                               keySize;
-
   private OBinarySerializer<K>              keySerializer;
   private OBinarySerializer<V>              valueSerializer;
 
   private final boolean                     durableInNonTxMode;
 
-  public OSBTreeBonsai(String dataFileExtension, int keySize, boolean durableInNonTxMode) {
+  public OSBTreeBonsai(String dataFileExtension, boolean durableInNonTxMode) {
     super(OGlobalConfiguration.ENVIRONMENT_CONCURRENT.getValueAsBoolean());
     this.dataFileExtension = dataFileExtension;
-    this.keySize = keySize;
     this.durableInNonTxMode = durableInNonTxMode;
   }
 
@@ -165,7 +157,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
   public V get(K key) {
     acquireSharedLock();
     try {
-      BucketSearchResult bucketSearchResult = findBucket(key, PartialSearchMode.NONE);
+      BucketSearchResult bucketSearchResult = findBucket(key);
       if (bucketSearchResult.itemIndex < 0)
         return null;
 
@@ -194,7 +186,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
     try {
       startDurableOperation(transaction);
 
-      BucketSearchResult bucketSearchResult = findBucket(key, PartialSearchMode.NONE);
+      BucketSearchResult bucketSearchResult = findBucket(key);
       OBonsaiBucketPointer bucketPointer = bucketSearchResult.getLastPathItem();
 
       OCacheEntry keyBucketCacheEntry = diskCache.load(fileId, bucketPointer.getPageIndex(), false);
@@ -207,21 +199,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
       final boolean itemFound = bucketSearchResult.itemIndex >= 0;
 
       if (itemFound) {
-        while (!keyBucket.updateValue(bucketSearchResult.itemIndex, value)) {
-          keyBucketPointer.releaseExclusiveLock();
-          diskCache.release(keyBucketCacheEntry);
-
-          bucketSearchResult = splitBucket(bucketSearchResult.path, bucketSearchResult.itemIndex, key);
-          bucketPointer = bucketSearchResult.getLastPathItem();
-
-          keyBucketCacheEntry = diskCache.load(fileId, bucketPointer.getPageIndex(), false);
-          keyBucketPointer = keyBucketCacheEntry.getCachePointer();
-          keyBucketPointer.acquireExclusiveLock();
-
-          keyBucket = new OSBTreeBonsaiBucket<K, V>(keyBucketPointer.getDataPointer(), bucketPointer.getPageOffset(),
-              keySerializer, valueSerializer, getTrackMode());
-        }
-
+        keyBucket.updateValue(bucketSearchResult.itemIndex, value);
         logPageChanges(keyBucket, fileId, bucketSearchResult.getLastPathItem().getPageIndex(), false);
       } else {
         int insertionIndex = -bucketSearchResult.itemIndex - 1;
@@ -249,6 +227,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
 
       keyBucketCacheEntry.markDirty();
       keyBucketPointer.releaseExclusiveLock();
+
       diskCache.release(keyBucketCacheEntry);
 
       if (!itemFound)
@@ -495,7 +474,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
     try {
       startDurableOperation(transaction);
 
-      BucketSearchResult bucketSearchResult = findBucket(key, PartialSearchMode.NONE);
+      BucketSearchResult bucketSearchResult = findBucket(key);
       if (bucketSearchResult.itemIndex < 0)
         return null;
 
@@ -589,13 +568,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
   public void loadEntriesMinor(K key, boolean inclusive, RangeResultListener<K, V> listener) {
     acquireSharedLock();
     try {
-      final PartialSearchMode partialSearchMode;
-      if (inclusive)
-        partialSearchMode = PartialSearchMode.HIGHEST_BOUNDARY;
-      else
-        partialSearchMode = PartialSearchMode.LOWEST_BOUNDARY;
-
-      BucketSearchResult bucketSearchResult = findBucket(key, partialSearchMode);
+      BucketSearchResult bucketSearchResult = findBucket(key);
 
       OBonsaiBucketPointer bucketPointer = bucketSearchResult.getLastPathItem();
       int index;
@@ -655,13 +628,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
   public void loadEntriesMajor(K key, boolean inclusive, RangeResultListener<K, V> listener) {
     acquireSharedLock();
     try {
-      final PartialSearchMode partialSearchMode;
-      if (inclusive)
-        partialSearchMode = PartialSearchMode.LOWEST_BOUNDARY;
-      else
-        partialSearchMode = PartialSearchMode.HIGHEST_BOUNDARY;
-
-      BucketSearchResult bucketSearchResult = findBucket(key, partialSearchMode);
+      BucketSearchResult bucketSearchResult = findBucket(key);
       OBonsaiBucketPointer bucketPointer = bucketSearchResult.getLastPathItem();
 
       int index;
@@ -858,13 +825,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
   public void loadEntriesBetween(K keyFrom, boolean fromInclusive, K keyTo, boolean toInclusive, RangeResultListener<K, V> listener) {
     acquireSharedLock();
     try {
-      PartialSearchMode partialSearchModeFrom;
-      if (fromInclusive)
-        partialSearchModeFrom = PartialSearchMode.LOWEST_BOUNDARY;
-      else
-        partialSearchModeFrom = PartialSearchMode.HIGHEST_BOUNDARY;
-
-      BucketSearchResult bucketSearchResultFrom = findBucket(keyFrom, partialSearchModeFrom);
+      BucketSearchResult bucketSearchResultFrom = findBucket(keyFrom);
 
       OBonsaiBucketPointer bucketPointerFrom = bucketSearchResultFrom.getLastPathItem();
 
@@ -875,13 +836,7 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
         indexFrom = -bucketSearchResultFrom.itemIndex - 1;
       }
 
-      PartialSearchMode partialSearchModeTo;
-      if (toInclusive)
-        partialSearchModeTo = PartialSearchMode.HIGHEST_BOUNDARY;
-      else
-        partialSearchModeTo = PartialSearchMode.LOWEST_BOUNDARY;
-
-      BucketSearchResult bucketSearchResultTo = findBucket(keyTo, partialSearchModeTo);
+      BucketSearchResult bucketSearchResultTo = findBucket(keyTo);
       OBonsaiBucketPointer bucketPointerTo = bucketSearchResultTo.getLastPathItem();
 
       int indexTo;
@@ -1154,25 +1109,9 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
     }
   }
 
-  private BucketSearchResult findBucket(K key, PartialSearchMode partialSearchMode) throws IOException {
+  private BucketSearchResult findBucket(K key) throws IOException {
     OBonsaiBucketPointer bucketPointer = rootBucketPointer;
     final ArrayList<OBonsaiBucketPointer> path = new ArrayList<OBonsaiBucketPointer>();
-
-    if (!(keySize == 1 || ((OCompositeKey) key).getKeys().size() == keySize || partialSearchMode.equals(PartialSearchMode.NONE))) {
-      final OCompositeKey fullKey = new OCompositeKey((Comparable<? super K>) key);
-      int itemsToAdd = keySize - fullKey.getKeys().size();
-
-      final Comparable<?> keyItem;
-      if (partialSearchMode.equals(PartialSearchMode.HIGHEST_BOUNDARY))
-        keyItem = ALWAYS_GREATER_KEY;
-      else
-        keyItem = ALWAYS_LESS_KEY;
-
-      for (int i = 0; i < itemsToAdd; i++)
-        fullKey.addKey(keyItem);
-
-      key = (K) fullKey;
-    }
 
     while (true) {
       path.add(bucketPointer);
@@ -1326,28 +1265,6 @@ public class OSBTreeBonsai<K, V> extends ODurableComponent implements OTreeInter
     public OBonsaiBucketPointer getLastPathItem() {
       return path.get(path.size() - 1);
     }
-  }
-
-  /**
-   * Indicates search behavior in case of {@link OCompositeKey} keys that have less amount of internal keys are used, whether lowest
-   * or highest partially matched key should be used.
-   * 
-   * 
-   */
-  private static enum PartialSearchMode {
-    /**
-     * Any partially matched key will be used as search result.
-     */
-    NONE,
-    /**
-     * The biggest partially matched key will be used as search result.
-     */
-    HIGHEST_BOUNDARY,
-
-    /**
-     * The smallest partially matched key will be used as search result.
-     */
-    LOWEST_BOUNDARY
   }
 
   private static final class PagePathItemUnit {

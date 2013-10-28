@@ -53,6 +53,9 @@ public enum OGlobalConfiguration {
       "Minimal amount of time (seconds) since last System.gc() when called after tree optimization", Long.class, 600),
 
   // STORAGE
+  SBTREE_COLLECTION_MANAGER_CACHE_SIZE("sbtreeCollectionManager.cache.size",
+      "Size of the cache for loaded sbtree ridset/map instances.", Integer.class, 10000),
+
   DISK_CACHE_SIZE("storage.diskCache.bufferSize", "Size of disk buffer in megabytes", Integer.class, 4 * 1024),
 
   DISK_WRITE_CACHE_PART("storage.diskCache.writeCachePart", "Percent of disk cache which is use as write cache", Integer.class, 30),

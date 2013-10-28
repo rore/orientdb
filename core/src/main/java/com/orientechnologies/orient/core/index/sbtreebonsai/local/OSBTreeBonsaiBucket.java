@@ -29,7 +29,6 @@ import com.orientechnologies.common.serialization.types.OByteSerializer;
 import com.orientechnologies.common.serialization.types.OIntegerSerializer;
 import com.orientechnologies.common.serialization.types.OLongSerializer;
 import com.orientechnologies.orient.core.config.OGlobalConfiguration;
-import com.orientechnologies.orient.core.index.sbtree.local.OSBTreeException;
 
 /**
  * @author Andrey Lomakin
@@ -149,12 +148,10 @@ public class OSBTreeBonsaiBucket<K, V> extends OBonsaiBucketAbstract {
 
     int entrySize = keySerializer.getObjectSizeInDirectMemory(pagePointer, offset + entryPosition);
     if (isLeaf) {
-      if (valueSerializer.isFixedLength())
-        entrySize += valueSerializer.getFixedLength();
-      else
-        entrySize += valueSerializer.getObjectSizeInDirectMemory(pagePointer, offset + entryPosition + entrySize);
+      assert valueSerializer.isFixedLength();
+      entrySize += valueSerializer.getFixedLength();
     } else {
-      throw new IllegalStateException("Remove is applies to leaf buckets only");
+      throw new IllegalStateException("Remove is applied to leaf buckets only");
     }
 
     int size = size();
@@ -250,14 +247,9 @@ public class OSBTreeBonsaiBucket<K, V> extends OBonsaiBucketAbstract {
     int entrySize = keySize;
 
     if (isLeaf) {
-      if (valueSerializer.isFixedLength())
-        valueSize = valueSerializer.getFixedLength();
-      else
-        valueSize = valueSerializer.getObjectSize(treeEntry.value);
-
+      assert valueSerializer.isFixedLength();
+      valueSize = valueSerializer.getFixedLength();
       entrySize += valueSize;
-
-      checkEntreeSize(entrySize);
     } else
       entrySize += 2 * (OLongSerializer.LONG_SIZE + OIntegerSerializer.INT_SIZE);
 
@@ -318,35 +310,16 @@ public class OSBTreeBonsaiBucket<K, V> extends OBonsaiBucketAbstract {
     return true;
   }
 
-  public boolean updateValue(int index, V value) throws IOException {
-    if (valueSerializer.isFixedLength()) {
-      int entryPosition = getIntValue(offset + index * OIntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET);
+  public void updateValue(int index, V value) throws IOException {
+    assert valueSerializer.isFixedLength();
+    int entryPosition = getIntValue(offset + index * OIntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET);
 
-      entryPosition += keySerializer.getObjectSizeInDirectMemory(pagePointer, offset + entryPosition);
+    entryPosition += keySerializer.getObjectSizeInDirectMemory(pagePointer, offset + entryPosition);
 
-      byte[] serializedValue = new byte[valueSerializer.getFixedLength()];
-      valueSerializer.serializeNative(value, serializedValue, 0);
+    byte[] serializedValue = new byte[valueSerializer.getFixedLength()];
+    valueSerializer.serializeNative(value, serializedValue, 0);
 
-      setBinaryValue(offset + entryPosition, serializedValue);
-      return true;
-    }
-
-    final int entryPosition = getIntValue(offset + index * OIntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET);
-
-    int entreeSize = keySerializer.getObjectSizeInDirectMemory(pagePointer, offset + entryPosition);
-    entreeSize += valueSerializer.getObjectSize(value);
-
-    checkEntreeSize(entreeSize);
-
-    final K key = getKey(index);
-    remove(index);
-    return addEntry(index, new SBTreeEntry<K, V>(OBonsaiBucketPointer.NULL, OBonsaiBucketPointer.NULL, key, value), false);
-  }
-
-  private void checkEntreeSize(int entreeSize) {
-    if (entreeSize > MAX_ENTREE_SIZE)
-      throw new OSBTreeException("Serialized key-value pair size bigger than allowed " + entreeSize + " vs " + MAX_ENTREE_SIZE
-          + ".");
+    setBinaryValue(offset + entryPosition, serializedValue);
   }
 
   public void setFreeListPointer(OBonsaiBucketPointer pointer) throws IOException {

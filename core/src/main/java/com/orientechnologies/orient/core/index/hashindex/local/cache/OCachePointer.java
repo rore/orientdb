@@ -80,19 +80,16 @@ public class OCachePointer {
     readWriteLock.writeLock().unlock();
   }
 
-  @Override
   public void acquireSharedLock() {
-    super.acquireSharedLock();
+    readWriteLock.readLock().lock();
   }
 
-  @Override
   public boolean tryAcquireSharedLock() {
-    return super.tryAcquireSharedLock();
+    return readWriteLock.readLock().tryLock();
   }
 
-  @Override
   public void releaseSharedLock() {
-    super.releaseSharedLock();
+    readWriteLock.readLock().unlock();
   }
 
   @Override
