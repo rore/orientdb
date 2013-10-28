@@ -26,11 +26,7 @@ import com.orientechnologies.orient.core.index.OIndex;
 import com.orientechnologies.orient.core.index.OIndexDefinition;
 import com.orientechnologies.orient.core.record.impl.ODocument;
 import com.orientechnologies.orient.core.sql.filter.OSQLFilterCondition;
-import com.orientechnologies.orient.core.sql.operator.math.OQueryOperatorDivide;
-import com.orientechnologies.orient.core.sql.operator.math.OQueryOperatorMinus;
-import com.orientechnologies.orient.core.sql.operator.math.OQueryOperatorMod;
-import com.orientechnologies.orient.core.sql.operator.math.OQueryOperatorMultiply;
-import com.orientechnologies.orient.core.sql.operator.math.OQueryOperatorPlus;
+import com.orientechnologies.orient.core.sql.operator.math.*;
 
 /**
  * Query Operators. Remember to handle the operator in OQueryItemCondition.

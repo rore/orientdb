@@ -30,7 +30,7 @@ public class OGraphServerHandler extends OServerPluginAbstract implements OScrip
     enabled = true;
     OLogManager.instance().info(this, "Installing GREMLIN language v.%s - graph.pool.max=%d", OGremlinHelper.getEngineVersion(),
         graphPoolMax);
-    
+
     Orient.instance().getScriptManager().registerInjection(this);
   }
 

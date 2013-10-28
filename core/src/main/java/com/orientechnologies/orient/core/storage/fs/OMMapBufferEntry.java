@@ -28,18 +28,18 @@ import com.orientechnologies.orient.core.memory.OMemoryWatchDog;
 
 public class OMMapBufferEntry implements Comparable<OMMapBufferEntry> {
   private static final OProfilerMBean PROFILER = Orient.instance().getProfiler();
-  private static final int          FORCE_DELAY;
-  private static final int          FORCE_RETRY;
+  private static final int            FORCE_DELAY;
+  private static final int            FORCE_RETRY;
 
-  static Method                     cleanerMethod;
+  static Method                       cleanerMethod;
 
-  Lock                              lock     = new ReentrantLock();
-  volatile OFileMMap                file;
-  volatile MappedByteBuffer         buffer;
-  final long                        beginOffset;
-  final int                         size;
-  volatile boolean                  dirty;
-  private volatile long             lastUsed;
+  Lock                                lock     = new ReentrantLock();
+  volatile OFileMMap                  file;
+  volatile MappedByteBuffer           buffer;
+  final long                          beginOffset;
+  final int                           size;
+  volatile boolean                    dirty;
+  private volatile long               lastUsed;
 
   static {
     FORCE_DELAY = OGlobalConfiguration.FILE_MMAP_FORCE_DELAY.getValueAsInteger();

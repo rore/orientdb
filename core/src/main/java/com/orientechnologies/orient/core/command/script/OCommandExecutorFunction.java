@@ -18,11 +18,7 @@ package com.orientechnologies.orient.core.command.script;
 import java.util.Map;
 import java.util.Map.Entry;
 
-import javax.script.Bindings;
-import javax.script.Invocable;
-import javax.script.ScriptContext;
-import javax.script.ScriptEngine;
-import javax.script.ScriptException;
+import javax.script.*;
 
 import com.orientechnologies.orient.core.Orient;
 import com.orientechnologies.orient.core.command.OCommandContext;
